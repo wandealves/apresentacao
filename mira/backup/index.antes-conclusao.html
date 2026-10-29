@@ -1,0 +1,3141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Atlas SDK e Mogai DevOps</title>
+
+<!-- ==========================================================
+     MIRA-DEFAULT · template oficial padrão do Mira
+     ----------------------------------------------------------
+     Um slide = um título em cima e uma animação ocupando todo o
+     resto do quadro 16:9. Sem card, sem pílulas, sem moldura: a
+     animação É o slide.
+
+     Veio do mira-studio-full, mas SÓ a parte de animação. Ficaram
+     de fora, de propósito, as coisas que existem para gravar:
+       - regra dos terços (animação 2/3 + câmera 1/3)
+       - layout de câmera cheia
+       - teleprompter e gravador
+     Slide comum não tem câmera. Quem precisa gravar usa
+     /mira-studio-full (16:9) ou /mira-studio (9:16), que seguem
+     existindo com essas peças.
+
+     ESTRUTURA DE UM SLIDE DE CONTEÚDO (é o contrato; os agentes
+     de animação procuram .anim-stage):
+
+       <section>
+         <div class="slide-main">
+           <h2>Título <span class="accent">destacado</span></h2>
+           <div class="anim-stage"><svg id="..."></svg></div>
+         </div>
+       </section>
+
+     O PALCO OCUPA O QUADRO INTEIRO, de borda a borda: o .anim-stage
+     é absoluto e cobre a <section> toda, por baixo do título. Não é
+     mais "o que sobra depois do título".
+
+     O TÍTULO FICA POR CIMA de tudo que é do template. A faixa de
+     z-index deste arquivo vai até 10; os módulos de autoria
+     (mira-draw, mira-edit) usam 99998 e acima, e continuam acima do
+     título de propósito, senão não daria para desenhar nem editar
+     por cima dele.
+
+     A ANIMAÇÃO EVITA A FAIXA DO TÍTULO. O palco() mede o título e
+     entrega a faixa livre em unidades do viewBox:
+
+       F.topo         y onde a área livre começa (abaixo do título)
+       F.alturaUtil   altura dessa área
+       F.vy(k)        mapeia 0..1 na faixa livre. Use no lugar de F.H * k
+
+     Regra: nada FOCAL acima de F.topo. Ambiente pode atravessar,
+     porque atrás do título ele lê como profundidade, não como
+     conflito. Os 50px de padding continuam sendo a área segura das
+     bordas.
+     ========================================================== -->
+<link href="assets/vendor/inter.css" rel="stylesheet">
+<script src="assets/vendor/d3.v7.min.js"></script>
+<style>
+/* @MIRA:THEME:START */
+/* MIRA THEME: corporate-blue
+   Azul profundo e ciano — pitch para empresas, bancos, governo. */
+:root {
+    --mira-primary: #4DA3FF;
+    --mira-crop: #35D07F;
+    --mira-bg: #0A1220;
+    --mira-text: #ffffff;
+    --mira-text-soft: rgba(255, 255, 255, 0.72);
+    --mira-text-softer: rgba(255, 255, 255, 0.50);
+    --mira-card-bg: rgba(255, 255, 255, 0.05);
+    --mira-card-border: rgba(255, 255, 255, 0.10);
+    --mira-glow-soft: rgba(77, 163, 255, 0.15);
+    --mira-glow-strong: rgba(77, 163, 255, 0.25);
+    --mira-icon-bg: rgba(77, 163, 255, 0.15);
+    --mira-icon-border: rgba(77, 163, 255, 0.30);
+    --mira-pill-bg: rgba(255, 255, 255, 0.04);
+    --mira-pill-border: rgba(255, 255, 255, 0.08);
+    --mira-stage-glow: rgba(77, 163, 255, 0.06);
+    --mira-accent-2: #6EE7F0;
+}
+
+
+/* ============================================================
+   MIRA — base.css
+   Estrutura compartilhada por todos os temas.
+   Os temas definem apenas as CSS variables (--mira-*).
+   ============================================================ */
+
+body {
+    background: var(--mira-bg);
+    min-height: 100vh;
+    color: var(--mira-text);
+    font-family: 'Inter', sans-serif;
+}
+
+.primary-color { color: var(--mira-primary); }
+.primary-bg { background: var(--mira-primary); }
+
+.glass-card {
+    background: var(--mira-card-bg);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--mira-card-border);
+    box-shadow: 0 10px 30px var(--mira-glow-soft);
+    transition: all 0.3s ease;
+    border-radius: 0.75rem;
+}
+
+.glass-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px var(--mira-glow-strong);
+}
+
+.icon-hero {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    background: var(--mira-icon-bg);
+    border: 1px solid var(--mira-icon-border);
+}
+
+.attribute-pill {
+    background: var(--mira-pill-bg);
+    border: 1px solid var(--mira-pill-border);
+    transition: all 0.25s ease;
+    border-radius: 9999px;
+}
+
+.attribute-pill:hover {
+    background: var(--mira-icon-bg);
+    border-color: var(--mira-icon-border);
+    transform: translateY(-3px);
+}
+
+/* Palco de animação D3 — tamanho padrão do canvas */
+.anim-stage {
+    width: 100%;
+    height: clamp(400px, 60vh, 620px);
+    background: radial-gradient(circle at 50% 50%, var(--mira-stage-glow), transparent 70%);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+.anim-stage svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.replay-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    background: var(--mira-pill-bg);
+    border: 1px solid var(--mira-pill-border);
+    color: var(--mira-text-soft);
+    border-radius: 9999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.replay-btn:hover {
+    background: var(--mira-icon-bg);
+    color: var(--mira-primary);
+}
+
+.text-soft { color: var(--mira-text-soft); }
+.text-softer { color: var(--mira-text-softer); }
+
+@keyframes mira-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.08); opacity: 0.85; }
+}
+
+@keyframes mira-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+@keyframes mira-gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* @MIRA:THEME:END */
+
+/* ----------------------------------------------------------
+   A estrutura vem DEPOIS do bloco do tema de propósito: o
+   "npx mira-animator new --theme=..." troca só aquele bloco, e
+   o que está aqui embaixo precisa continuar valendo por cima do
+   que o tema trouxer.
+   ---------------------------------------------------------- */
+:root {
+    --accent: var(--mira-primary);
+    --bg: var(--mira-bg);
+    --ink: var(--mira-text);
+    --muted: var(--mira-text-soft);
+    --line: var(--mira-card-border);
+    /* quadro 16:9 que cabe inteiro na janela */
+    --fmt-w: min(100vw, calc(100vh * 16 / 9));
+    --fmt-h: calc(var(--fmt-w) * 9 / 16);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { background: #000000; scroll-behavior: smooth; scroll-snap-type: y proximity; }
+/* sem barra de rolagem: ela roubaria largura do quadro e criaria
+   scroll horizontal em tela cheia. Navegue por seta ou roda. */
+html { scrollbar-width: none; overflow-x: hidden; }
+html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+body {
+    background: #000000;
+    color: var(--ink);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+body > section {
+    position: relative;
+    width: var(--fmt-w);
+    height: var(--fmt-h);
+    min-height: var(--fmt-h);
+    /* centraliza o quadro: em tela que não é 16:9 a sobra vira
+       faixa cinza acima e abaixo, nunca o slide seguinte */
+    margin: calc((100vh - var(--fmt-h)) / 2) 0;
+    scroll-margin-top: calc((100vh - var(--fmt-h)) / 2);
+    overflow: hidden;
+    background: var(--bg);
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    isolation: isolate;
+}
+
+/* DIRETIVA DA CAPA: o título do primeiro slide nunca quebra
+   deixando artigo ou preposição sozinho na linha de baixo. */
+body > section:first-of-type h1,
+body > section:first-of-type h2 { text-wrap: balance; }
+
+h1 { font-size: clamp(34px, 7.4vh, 72px); line-height: 1.02; letter-spacing: -.02em; font-weight: 800; }
+h2 { font-size: clamp(28px, 4.6vh, 46px); line-height: 1.1; letter-spacing: -.01em; font-weight: 800; }
+p  { font-size: clamp(15px, 2vh, 20px); line-height: 1.5; color: var(--muted); }
+.accent { color: var(--accent); }
+
+/* ---------- capa e encerramento: texto centrado no quadro ---------- */
+.slide-centro {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 50px;
+    text-align: center;
+}
+.slide-centro .marca {
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--mira-text-softer);
+}
+
+/* ---------- slide de conteúdo: título em cima, animação no resto ---------- */
+.slide-main {
+    width: 100%;
+    height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 50px;              /* área segura */
+}
+/* o título fica POR CIMA do palco, que agora passa por baixo dele.
+   z-index 10 é o teto deste template; mira-draw e mira-edit vivem em
+   99998 e acima, e continuam por cima do título de propósito, senão
+   não daria para desenhar nem editar sobre ele. */
+.slide-main h2 {
+    flex: 0 0 auto;
+    margin-bottom: 14px;
+    text-align: center;
+    position: relative;
+    z-index: 10;
+}
+
+/* o palco: O QUADRO INTEIRO, de borda a borda.
+
+   `inset: 0` resolve contra a <section>, porque o .slide-main é
+   estático e a <section> é `position: relative`. Sair do fluxo é o
+   que faz o palco passar POR BAIXO do título em vez de começar
+   depois dele.
+
+   Os resets de fundo e raio não são enfeite. Quando o
+   "new --theme=..." injeta o base.css, ele traz `.anim-stage` com
+   altura fixa (clamp 400-620px), glow radial e cantos arredondados,
+   que é a linguagem de CARD. Aqui o palco É o slide: sem neutralizar
+   isso, o deck gerado sai com uma caixinha arredondada no meio, que
+   é exatamente o que este template existe para não ser. */
+.anim-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: auto;
+    height: auto;
+    min-height: 0;
+    background: none;
+    border-radius: 0;
+}
+.anim-stage svg { width: 100%; height: 100%; display: block; }
+
+/* @MIRA:RESPONSIVE:START */
+/* ============================================================
+   MIRA — responsive.css  (camada de reflow mobile-first)
+   Objetivo: TODO slide 16:9 do Mira vira legível no celular em
+   retrato SEM arquivo mobile separado. O mesmo deck se reorganiza:
+   fontes encolhem, grids empilham, padding reduz, palcos escalam.
+
+   Estratégia: os decks nascem "desktop-first" (classes Tailwind com
+   tamanhos fixos: text-6xl, p-10, ...). Esta camada sobrescreve essas
+   classes abaixo de 640px. Usa !important de propósito — precisa
+   vencer o Tailwind CDN (injetado em runtime) em decks legados sem
+   reescrever o HTML. Os clamps têm teto ~= valor desktop, então em
+   telas largas nada muda; só encolhem no estreito.
+   ============================================================ */
+
+/* Guarda universal contra overflow horizontal (o "print cortado" no zap). */
+html, body { max-width: 100%; overflow-x: hidden; }
+img, svg, video, canvas, iframe, table, pre { max-width: 100%; }
+
+@media (max-width: 640px) {
+
+  /* --- Tipografia fluida: encolhe títulos gigantes no celular --- */
+  .text-9xl { font-size: clamp(3rem, 12vw, 5rem)      !important; line-height: 1.05 !important; }
+  .text-8xl { font-size: clamp(2.75rem, 11vw, 4.5rem) !important; line-height: 1.06 !important; }
+  .text-7xl { font-size: clamp(2.25rem, 10vw, 3.75rem)!important; line-height: 1.08 !important; }
+  .text-6xl { font-size: clamp(2rem, 9vw, 3rem)       !important; line-height: 1.1  !important; }
+  .text-5xl { font-size: clamp(1.75rem, 8vw, 2.5rem)  !important; line-height: 1.12 !important; }
+  .text-4xl { font-size: clamp(1.5rem, 7vw, 2rem)     !important; line-height: 1.15 !important; }
+  .text-3xl { font-size: clamp(1.35rem, 6vw, 1.75rem) !important; line-height: 1.2  !important; }
+  .text-2xl { font-size: clamp(1.2rem, 5vw, 1.5rem)   !important; line-height: 1.25 !important; }
+  .text-xl  { font-size: clamp(1.05rem, 4.5vw, 1.25rem)!important; line-height: 1.3 !important; }
+
+  /* Títulos: quebram entre palavras; só partem uma palavra se ela sozinha
+     estourar a largura. Sem hyphens:auto — em PT ele hifena no meio
+     ("pode-rosas") e fica feio em título de display. */
+  h1, h2, h3 { overflow-wrap: break-word; }
+
+  /* --- Espaçamento: paddings de desktop sufocam o celular --- */
+  .p-12 { padding: 1.25rem !important; }
+  .p-10 { padding: 1.15rem !important; }
+  .p-8  { padding: 1.05rem !important; }
+  .px-12, .px-10 { padding-left: 1.15rem !important; padding-right: 1.15rem !important; }
+  .px-8 { padding-left: 1rem !important; padding-right: 1rem !important; }
+  .py-16 { padding-top: 2.5rem !important; padding-bottom: 2.5rem !important; }
+  .gap-8 { gap: 1rem !important; }
+  .gap-10, .gap-12 { gap: 1.25rem !important; }
+
+  /* --- Layout: seção de slide sempre alcançável pelo topo ---
+     min-h-screen + justify-center clipa o topo quando o conteúdo é
+     maior que a tela. No celular, ancora no topo e deixa rolar. */
+  .min-h-screen {
+    min-height: 100dvh !important;
+    height: auto !important;
+    padding-top: 2rem !important;
+    padding-bottom: 2rem !important;
+  }
+  .min-h-screen.justify-center,
+  .min-h-screen.items-center { justify-content: flex-start !important; }
+
+  /* --- Grids/flex de 2+ colunas empilham (redundante ao md: do
+         Tailwind, mas cobre grids sem breakpoint declarado). --- */
+  .grid-cols-2, .grid-cols-3, .grid-cols-4 { grid-template-columns: 1fr !important; }
+
+  /* --- Palco de animação (D3/SVG/canvas): nunca estoura a largura,
+         mantém proporção e encolhe a altura. --- */
+  .anim-stage {
+    max-width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9;
+    min-height: 0 !important;
+  }
+
+  /* --- Tabelas: fonte menor + rolagem horizontal se precisar. --- */
+  table { font-size: 0.82rem !important; }
+  .overflow-x-auto { -webkit-overflow-scrolling: touch; }
+
+  /* --- Controles flutuantes respeitam a safe-area do iPhone. --- */
+  #mira-next, #next-card {
+    bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+    right: max(1rem, env(safe-area-inset-right)) !important;
+    width: 44px !important; height: 44px !important;
+  }
+}
+/* @MIRA:RESPONSIVE:END */
+
+/* ---------- deck mogai-devops-sdk: título + subtítulo ---------- */
+.slide-main .titulo {
+    flex: 0 0 auto;
+    margin-bottom: 14px;
+    text-align: center;
+    position: relative;
+    z-index: 10;
+}
+.slide-main .titulo h2 { margin-bottom: 0; }
+.slide-main .titulo .sub {
+    margin-top: 6px;
+    font-size: clamp(13px, 2vh, 19px);
+    color: var(--mira-text-soft);
+}
+
+/* ---------- conteúdo HTML dentro do SVG (foreignObject) ----------
+   As medidas em px aqui são unidades do viewBox (960 de largura),
+   então escalam junto com o quadro. */
+.fo { width: 100%; height: 100%; color: var(--mira-text); font-family: 'Inter', system-ui, sans-serif; font-size: 13px; line-height: 1.35; }
+.fo * { box-sizing: border-box; margin: 0; }
+.fo .mono, .fo code { font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace; }
+.fo code { color: var(--mira-accent-2); font-size: .92em; }
+.fo .card { height: 100%; background: var(--mira-card-bg); border: 1px solid var(--mira-card-border); border-radius: 10px; padding: 12px 14px; transition: border-color .35s, background .35s, box-shadow .35s; }
+.fo .card.on { border-color: var(--mira-primary); background: var(--mira-glow-soft); box-shadow: 0 0 22px var(--mira-glow-soft); }
+.fo .card h4 { font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+.fo .card .k { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--mira-text-softer); margin-bottom: 6px; }
+.fo .card ul { list-style: none; padding: 0; }
+.fo .card li { font-size: 12px; color: var(--mira-text-soft); padding: 2px 0 2px 14px; position: relative; }
+.fo .card li::before { content: ''; position: absolute; left: 2px; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--mira-primary); }
+.fo .card p { font-size: 12px; color: var(--mira-text-soft); line-height: 1.4; }
+
+.fo .term { height: 100%; background: var(--mira-card-bg); border: 1px solid var(--mira-card-border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.fo .term-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--mira-card-border); font-size: 10.5px; color: var(--mira-text-softer); flex: 0 0 auto; }
+.fo .term-bar i { width: 8px; height: 8px; border-radius: 50%; background: var(--mira-card-border); display: inline-block; }
+.fo .term-bar span { margin-left: 6px; }
+.fo .term-body { padding: 8px 12px; font-size: 12.5px; flex: 1 1 auto; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace; }
+.fo .tl { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; padding: 2px 5px; border-radius: 4px; transition: background .35s; min-height: 1.35em; }
+.fo .tl.on { background: var(--mira-glow-strong); }
+.fo .tp { color: var(--mira-primary); }
+.fo .tc { color: var(--mira-text-softer); }
+.fo .tx { color: var(--mira-text); }
+.fo .cur { display: inline-block; width: .55em; height: 1.05em; vertical-align: -2px; background: var(--mira-primary); margin-left: 1px; }
+.fo .cur.off { visibility: hidden; }
+.fo .t-tag { color: var(--mira-accent-2); }
+.fo .t-attr { color: var(--mira-primary); }
+.fo .t-str { color: var(--mira-crop); }
+
+.fo table.tb { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fo .tb th { text-align: left; color: var(--mira-text-softer); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding: 6px 8px; border-bottom: 1px solid var(--mira-card-border); }
+.fo .tb td { padding: 7px 8px; border-bottom: 1px solid var(--mira-card-border); color: var(--mira-text-soft); transition: background .35s, color .35s; vertical-align: top; }
+.fo .tb td:first-child { color: var(--mira-text); font-weight: 600; }
+.fo .tb tr.on td { background: var(--mira-glow-soft); color: var(--mira-text); }
+.fo .tb .ck { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--mira-card-border); text-align: center; line-height: 13px; font-size: 10px; color: transparent; transition: all .3s; }
+.fo .tb .ck.ok { background: var(--mira-crop); border-color: var(--mira-crop); color: var(--mira-bg); font-weight: 800; }
+.fo .pill { display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--mira-card-border); color: var(--mira-text-soft); }
+.fo .pill.ok { border-color: var(--mira-crop); color: var(--mira-crop); }
+.fo .pill.off { color: var(--mira-text-softer); }
+
+.fo .alerta { height: 100%; border: 1px solid var(--mira-icon-border); background: var(--mira-icon-bg); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: var(--mira-text-soft); transition: box-shadow .35s, border-color .35s; }
+.fo .alerta.on { border-color: var(--mira-primary); box-shadow: 0 0 26px var(--mira-glow-strong); }
+.fo .alerta b { color: var(--mira-text); }
+
+.fo .citacao { height: 100%; border-left: 3px solid var(--mira-primary); background: var(--mira-card-bg); border-radius: 0 10px 10px 0; padding: 10px 16px; font-size: 12.5px; color: var(--mira-text-soft); font-style: italic; }
+.fo .citacao .fonte { display: block; margin-top: 6px; font-style: normal; font-size: 10.5px; color: var(--mira-text-softer); letter-spacing: .06em; }
+
+.fo .vcell { position: relative; width: 100%; height: 100%; border-radius: 10px; overflow: hidden; border: 1px solid var(--mira-card-border); background: var(--mira-bg); transition: border-color .4s, box-shadow .4s; }
+.fo .vcell.on { border-color: var(--mira-primary); box-shadow: 0 0 24px var(--mira-glow-strong); }
+.fo .vcell video { width: 100%; height: 100%; object-fit: contain; display: block; background: var(--mira-bg); }
+.fo .vcell .vcap { position: absolute; left: 8px; bottom: 8px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--mira-bg); border: 1px solid var(--mira-card-border); color: var(--mira-text); }
+
+.fo .skel { position: absolute; inset: 34px 8px 8px 8px; display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
+.fo .skel div { height: 14px; border-radius: 6px; background: linear-gradient(90deg, var(--mira-card-bg), var(--mira-glow-strong), var(--mira-card-bg)); background-size: 200% 100%; }
+
+</style>
+<style>
+/* ---------- INTRODUÇÃO AO ATLAS (2026-10-27) ----------
+   Bloco separado de propósito: o <style> original do deck fica intacto. */
+
+/* A capa nova virou o primeiro <section>, então a DIRETIVA DA CAPA passa a
+   valer para ela. O antigo slide 1 continua com o mesmo equilíbrio de linhas
+   que tinha quando era o primeiro. */
+body > section:has(#s01) h2 { text-wrap: balance; }
+
+.capa-atlas .capa-conteudo {
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 62%;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(8px, 1.8vh, 18px);
+    padding: 50px 50px 0;
+    text-align: center;
+    pointer-events: none;
+}
+.capa-atlas .capa-logo {
+    height: clamp(34px, 6.4vh, 62px);
+    width: auto;
+    filter: drop-shadow(0 0 18px var(--mira-glow-strong));
+    margin-bottom: clamp(4px, 1vh, 10px);
+}
+.capa-atlas .marca {
+    font-size: clamp(10px, 1.4vh, 13px);
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--mira-text-softer);
+}
+.capa-atlas h1 { font-size: clamp(38px, 8.6vh, 84px); }
+.capa-atlas .capa-sub {
+    max-width: 42em;
+    font-size: clamp(15px, 2.5vh, 24px);
+    color: var(--mira-text-soft);
+    text-wrap: balance;
+}
+</style>
+</head>
+<body>
+
+
+<!-- ==========================================================
+     INTRODUÇÃO AO ATLAS (inserida em 2026-10-27)
+     Capa + 6 slides antes do slide original "Do pedido ao backlog,
+     com o Atlas". Fonte factual: references/ATLAS.md (e, no slide
+     dos agentes, references/GUIA-MOGAI-DEVOPS-PIPELINE.md §4).
+     Animações no bloco <script> "INTRODUÇÃO AO ATLAS", ids a00..a06.
+     Versão anterior do deck: mira/backup/index.antes-intro-atlas.html
+     ========================================================== -->
+
+<!-- === INTRO 0 · CAPA === -->
+<section class="capa-atlas">
+    <!-- @MIRA:SIZE 3/10 -->
+    <div class="anim-stage"><svg id="a00" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="capa-conteudo">
+        <img class="capa-logo" src="assets/img/logo.png" alt="Mogai">
+        <p class="marca">Atlas .NET SDK · Atlas UI · Claude Code</p>
+        <h1>Atlas + <span class="accent">Claude Code</span></h1>
+        <p class="capa-sub">Uma base tecnológica para acelerar o desenvolvimento e impulsionar nossas soluções.</p>
+    </div>
+</section>
+
+<!-- === INTRO 1 · O QUE É === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>O que é o <span class="accent">Atlas</span></h2>
+            <p class="sub">A base comum de todos os sistemas da empresa</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="a01" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === INTRO 2 · POR QUE EXISTE === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Por que o Atlas <span class="accent">existe</span></h2>
+            <p class="sub">Cada projeto reinventava as mesmas peças, cada um do seu jeito</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="a02" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === INTRO 3 · BENEFÍCIOS PARA A EMPRESA === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>O que a <span class="accent">empresa</span> ganha</h2>
+            <p class="sub">Uma correção no Atlas chega a todos os sistemas com uma atualização de versão</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="a03" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === INTRO 4 · BENEFÍCIOS PARA OS TIMES === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>O que o <span class="accent">time</span> ganha</h2>
+            <p class="sub">Menos infraestrutura repetida, mais tempo para a regra de negócio</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="a04" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === INTRO 6 · AGENTES === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Claude Code e <span class="accent">agentes de IA</span></h2>
+            <p class="sub">Como vamos trabalhar: a IA prepara cada etapa e você revisa</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="a06" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 1 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Do pedido ao backlog, com o <span class="accent">Atlas</span></h2>
+            <p class="sub">SDK, UI e uma esteira de agentes no Claude Code</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s01" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 2 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Duas bibliotecas, uma <span class="accent">aplicação final</span></h2>
+            <p class="sub">Atlas SDK no backend .NET, Atlas UI no Angular</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s02" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 3 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Antes de escrever, veja se o <span class="accent">Atlas já faz</span></h2>
+            <p class="sub">Módulos Atlas.Net.Sdk.* no feed privado do Azure Artifacts</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s03" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 4 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Uma tabela completa em <span class="accent">seis linhas</span></h2>
+            <p class="sub">@mogai/atlas-ui · Angular 20 standalone · NG-ZORRO</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s04" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 5 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Componentes reais, <span class="accent">telas reais</span></h2>
+            <p class="sub">Storybook e Port Solutions construídos com o Atlas UI</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s05" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 6 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Onde o Atlas entra numa <span class="accent">arquitetura real</span></h2>
+            <p class="sub">PMS: do gateway às filas, com o SDK por baixo</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s06" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === INTRO 5 · DESENVOLVER E ADOTAR === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Evoluir e adotar o <span class="accent">Atlas</span></h2>
+            <p class="sub">Quem investe na plataforma e quem a usa ganham coisas diferentes</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="a05" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === HARNESS + CLAUDE CODE (inserido em 2026-10-27, depois do slide 6) ===
+     Animação na função h01 do bloco <script> "INTRODUÇÃO AO ATLAS". -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Harness + <span class="accent">Claude Code</span></h2>
+            <p class="sub">O modelo pensa; o harness dá a ele ferramentas, memória do projeto e regras para agir</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="h01" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 8 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>O agente só acerta o padrão <span class="accent">que conhece</span></h2>
+            <p class="sub">Atlas Knowledge dá ao Claude Code o contexto da empresa</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s08" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 9 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Uma esteira inteira dentro do <span class="accent">Claude Code</span></h2>
+            <p class="sub">Plugin mogai-devops-pipeline v1.5.0</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s09" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 10 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Instale, autentique, <span class="accent">confira</span></h2>
+            <p class="sub">Depois de configurar a Deploy Key de leitura</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s11" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 11 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Projeto novo ou sistema <span class="accent">em produção?</span></h2>
+            <p class="sub">O comando certo muda o caminho inteiro</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s12" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 12 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Do requisito à documentação, <span class="accent">etapa por etapa</span></h2>
+            <p class="sub">Cada agente entrega um artefato que você revisa</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s13" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 16 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Seu próximo pedido já cabe na <span class="accent">esteira</span></h2>
+            <p class="sub">Comece por uma evolução pequena num sistema existente</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s20" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 13 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Nove cards criados, <span class="accent">nenhum sem aprovação</span></h2>
+            <p class="sub">Do terminal ao Azure Boards pelo MCP</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s17" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 14 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Onde a esteira para e <span class="accent">você decide</span></h2>
+            <p class="sub">O plugin prepara; merge e deploy continuam com você</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s18" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<!-- === SLIDE 15 === -->
+<section>
+    <div class="slide-main">
+        <div class="titulo">
+            <h2>Seis movimentos do pedido à <span class="accent">entrega revisada</span></h2>
+            <p class="sub">O caminho inteiro, em uma tela</p>
+        </div>
+        <!-- @MIRA:SIZE 3/10 -->
+        <div class="anim-stage"><svg id="s19" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+</section>
+
+<script>
+/* ==============================================================
+   Animações do deck "Atlas SDK e plugin Mogai no fluxo DevOps".
+
+   Cada slide declara o quadro como função do tempo `ms` e o regente
+   decide que tempo passar: fora da tela fica congelado no zero, ao
+   entrar começa do zero, ao voltar recomeça. Assim toda animação
+   entra com coreografia e depois segue em loop, sem setTimeout solto.
+
+   Conteúdo: comandos, números e textos copiados das fontes em
+   references/ (guia do plugin, PPTX e capturas). Nada inventado.
+   ============================================================== */
+(function () {
+    'use strict';
+
+    /* cores sempre do tema; o fallback só vale se o CSS não carregou */
+    function cor(nome, reserva) {
+        var v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+        return v || reserva;
+    }
+    var COR = {
+        marca: cor('--mira-primary', '#4DA3FF'),
+        acento: cor('--mira-accent-2', '#6EE7F0'),
+        tinta: cor('--mira-text', '#ffffff'),
+        suave: cor('--mira-text-soft', 'rgba(255,255,255,.72)'),
+        fraco: cor('--mira-text-softer', 'rgba(255,255,255,.5)'),
+        card: cor('--mira-card-bg', 'rgba(255,255,255,.05)'),
+        borda: cor('--mira-card-border', 'rgba(255,255,255,.1)'),
+        ok: cor('--mira-crop', '#35D07F'),
+        fundo: cor('--mira-bg', '#0A1220'),
+        brilho: cor('--mira-glow-strong', 'rgba(77,163,255,.25)'),
+        brilhoSuave: cor('--mira-glow-soft', 'rgba(77,163,255,.15)')
+    };
+    var MONO = "ui-monospace,'Cascadia Code','JetBrains Mono',Consolas,'Courier New',monospace";
+
+    /* ---------- regente: o relógio do slide só anda quando ele aparece ----------
+       Fora da tela, pinta o quadro zero uma vez e descansa: com 20 slides,
+       repintar todos a cada frame pesaria à toa. */
+    function reger(svgId, quadro) {
+        var svg = document.getElementById(svgId);
+        var slide = svg && svg.closest('section');
+        if (!slide || typeof IntersectionObserver !== 'function') {
+            d3.timer(function (ms) { quadro(ms); });
+            return;
+        }
+        var relogio = null, visivel = false, pintouZero = false;
+        d3.timer(function (ms) {
+            if (!visivel) {
+                if (!pintouZero) { quadro(0); pintouZero = true; }
+                return;
+            }
+            pintouZero = false;
+            if (relogio === null) relogio = ms;
+            quadro(ms - relogio);
+        });
+        new IntersectionObserver(function (entradas) {
+            entradas.forEach(function (e) {
+                if (e.isIntersecting === visivel) return;
+                visivel = e.isIntersecting;
+                relogio = null;
+            });
+        }, { threshold: 0.6 }).observe(slide);
+    }
+
+    /* ---------- palco: o quadro inteiro, menos a faixa do título ----------
+       Mede o bloco .titulo (h2 + subtítulo) e devolve F.topo, F.alturaUtil
+       e F.vy(k). Nada focal acima de F.topo. */
+    function palco(svgId) {
+        var svg = d3.select('#' + svgId);
+        if (svg.empty()) return null;
+        var caixa = svg.node().closest('.anim-stage');
+        var secao = caixa && caixa.closest ? caixa.closest('section') : null;
+        var titulo = secao && secao.querySelector
+            ? secao.querySelector('.slide-main .titulo, .slide-main h2, .slide-main h1')
+            : null;
+        var RESPIRO = 16;
+        var F = { W: 960, H: 540, topo: 0, alturaUtil: 540 };
+        F.vy = function (k) { return F.topo + F.alturaUtil * k; };
+        function casar() {
+            var r = caixa.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) F.H = Math.round(F.W * r.height / r.width);
+            svg.attr('viewBox', '0 0 ' + F.W + ' ' + F.H);
+            F.topo = 0;
+            if (titulo && titulo.getBoundingClientRect && r.height > 0) {
+                var t = titulo.getBoundingClientRect();
+                var basePx = Math.max(0, (t.bottom || 0) - (r.top || 0));
+                F.topo = Math.round(F.H * basePx / r.height) + RESPIRO;
+                F.topo = Math.min(F.topo, Math.round(F.H * 0.30));
+            }
+            F.alturaUtil = F.H - F.topo;
+        }
+        casar();
+        window.addEventListener('resize', casar);
+        svg.selectAll('*').remove();
+        return { svg: svg, F: F };
+    }
+
+    /* ---------- utilidades de tempo e desenho ---------- */
+    function cl(v, a, b) { return v < a ? a : v > b ? b : v; }
+    function pr(ms, a, d) { return cl((ms - a) / d, 0, 1); }
+    function eo(ms, a, d) { return d3.easeCubicOut(pr(ms, a, d)); }
+    function es(ms, a, d) { return d3.easeSinInOut(pr(ms, a, d)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    /* janela: sobe em `a`, fica, desce em `b` */
+    function janela(ms, a, b, f) { f = f || 400; return eo(ms, a, f) * (1 - eo(ms, b - f, f)); }
+    function piscar(ms) { return Math.floor(ms / 530) % 2 === 0; }
+    function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    function bloco(pai, x, y) {
+        var g = pai.append('g').attr('transform', 'translate(' + x + ',' + y + ')');
+        g.node().__xy = [x, y];
+        return g;
+    }
+    function sobe(g, k, dy) {
+        var p = g.node().__xy;
+        g.attr('opacity', k).attr('transform', 'translate(' + p[0] + ',' + (p[1] + (1 - k) * (dy == null ? 14 : dy)) + ')');
+    }
+    function fo(g, x, y, w, h, html, cls) {
+        var f = g.append('foreignObject').attr('x', x).attr('y', y).attr('width', w).attr('height', h);
+        return f.append('xhtml:div').attr('class', 'fo ' + (cls || '')).html(html || '');
+    }
+    function caixa(g, x, y, w, h, o) {
+        o = o || {};
+        return g.append('rect').attr('x', x).attr('y', y).attr('width', w).attr('height', h)
+            .attr('rx', o.rx == null ? 10 : o.rx).attr('fill', o.fill || COR.card)
+            .attr('stroke', o.stroke || COR.borda).attr('stroke-width', o.sw || 1);
+    }
+    function texto(g, x, y, s, o) {
+        o = o || {};
+        var t = g.append('text').attr('x', x).attr('y', y).attr('fill', o.fill || COR.tinta)
+            .attr('font-size', o.size || 14).attr('font-weight', o.weight || 400)
+            .attr('text-anchor', o.anchor || 'start');
+        if (o.mono) t.attr('font-family', MONO);
+        if (o.italic) t.attr('font-style', 'italic');
+        var linhas = String(s).split('\n');
+        if (linhas.length === 1) t.text(s);
+        else linhas.forEach(function (l, i) {
+            t.append('tspan').attr('x', x).attr('dy', i === 0 ? 0 : (o.lh || (o.size || 14) * 1.3)).text(l);
+        });
+        return t;
+    }
+    function escrever(no, s) { if (no.__s !== s) { no.__s = s; no.textContent = s; } }
+    function imagem(g, href, x, y, w, h) {
+        return g.append('image').attr('href', href).attr('x', x).attr('y', y)
+            .attr('width', w).attr('height', h).attr('preserveAspectRatio', 'xMidYMid meet');
+    }
+    function caber(aw, ah, bw, bh) { var s = Math.min(bw / aw, bh / ah); return { w: aw * s, h: ah * s }; }
+    function marcaOk(g, x, y, r) {
+        var c = g.append('g').attr('transform', 'translate(' + x + ',' + y + ')');
+        c.append('circle').attr('r', r || 7).attr('fill', COR.ok);
+        var s = (r || 7) / 7;
+        c.append('path').attr('d', 'M' + (-3.2 * s) + ',' + (0.2 * s) + ' L' + (-1 * s) + ',' + (2.6 * s) + ' L' + (3.4 * s) + ',' + (-2.4 * s))
+            .attr('fill', 'none').attr('stroke', COR.fundo).attr('stroke-width', 1.8 * s)
+            .attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round');
+        return c;
+    }
+    /* ícone "person" do Material Icons (Apache-2.0), viewBox 24 */
+    var P_PESSOA = 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z';
+    function pessoa(g, x, y, tam, corPreench) {
+        return g.append('path').attr('d', P_PESSOA).attr('fill', corPreench || COR.marca)
+            .attr('transform', 'translate(' + x + ',' + y + ') scale(' + (tam / 24) + ')');
+    }
+    /* polilinha percorrida por t de 0 a 1 */
+    function trajeto(pts) {
+        var L = [0];
+        for (var i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+        var tot = L[L.length - 1] || 1;
+        return function (t) {
+            var d = cl(t, 0, 1) * tot;
+            for (var j = 1; j < L.length; j++) {
+                if (d <= L[j]) {
+                    var k = (d - L[j - 1]) / ((L[j] - L[j - 1]) || 1);
+                    return [lerp(pts[j - 1][0], pts[j][0], k), lerp(pts[j - 1][1], pts[j][1], k)];
+                }
+            }
+            return pts[pts.length - 1];
+        };
+    }
+    /* chaves de posição {t,x,y}: entre duas chaves, desloca com sine in-out */
+    function chaves(kf) {
+        return function (ms) {
+            if (ms <= kf[0].t) return [kf[0].x, kf[0].y];
+            for (var i = 1; i < kf.length; i++) {
+                if (ms <= kf[i].t) {
+                    var a = kf[i - 1], b = kf[i];
+                    var k = d3.easeSinInOut((ms - a.t) / ((b.t - a.t) || 1));
+                    return [lerp(a.x, b.x, k), lerp(a.y, b.y, k)];
+                }
+            }
+            var z = kf[kf.length - 1];
+            return [z.x, z.y];
+        };
+    }
+    /* amostra um <path> para mover coisas por ele */
+    function amostrar(no, n) {
+        var L = no.getTotalLength(), pts = [];
+        for (var i = 0; i <= n; i++) { var q = no.getPointAtLength(L * i / n); pts.push([q.x, q.y]); }
+        return trajeto(pts);
+    }
+    function seta(g, x1, y1, x2, y2, o) {
+        o = o || {};
+        return g.append('line').attr('x1', x1).attr('y1', y1).attr('x2', x2).attr('y2', y2)
+            .attr('stroke', o.cor || COR.borda).attr('stroke-width', o.sw || 1.5)
+            .attr('stroke-dasharray', o.tracejado ? '4 4' : null);
+    }
+
+    var CAP = {
+        '01': [1912, 265], '02': [1907, 201], '03': [1908, 873], '04': [1900, 141], '05': [1898, 424],
+        '06': [1897, 353], '07': [1896, 383], '08': [1893, 815], '09': [1895, 691], '10': [1914, 666],
+        '11': [1903, 566], '12': [1904, 374], '13': [1903, 463], '14': [1907, 454], '15': [1893, 498],
+        '16': [1895, 928], '17': [1900, 915]
+    };
+    function cap(n) { return 'assets/img/plugin-mogai-' + n + '.png'; }
+
+    /* ==============================================================
+       S01 · Capa: os números contam, depois um pacote percorre o trilho
+       e acende cada bloco por onde passa.
+       ============================================================== */
+    function s01(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var D = [
+            { n: 23, r: 'pacotes NuGet', f: 'Atlas SDK · backend .NET' },
+            { n: 38, r: 'componentes', f: 'Atlas UI · Angular 20' },
+            { n: 4, r: 'comandos', f: 'plugin mogai-devops-pipeline' },
+            { n: 11, r: 'agentes', f: 'plugin mogai-devops-pipeline' }
+        ];
+        var w = 200, h = 190, gap = 24, x0 = (960 - (4 * w + 3 * gap)) / 2;
+        var y0 = F.vy(.10), trilhoY = y0 + h + 44;
+        var trilho = seta(raiz, x0 + w / 2, trilhoY, x0 + 3 * (w + gap) + w / 2, trilhoY, { tracejado: true, sw: 2 });
+        var tiles = D.map(function (d, i) {
+            var x = x0 + i * (w + gap);
+            var haste = seta(raiz, x + w / 2, y0 + h, x + w / 2, trilhoY, { sw: 2 });
+            var g = bloco(raiz, x, y0);
+            var r = caixa(g, 0, 0, w, h, { rx: 16, stroke: COR.marca }).attr('stroke-opacity', .18);
+            var num = texto(g, w / 2, 98, '0', { anchor: 'middle', size: 80, weight: 800, fill: COR.marca });
+            texto(g, w / 2, 136, d.r, { anchor: 'middle', size: 19, weight: 700 });
+            texto(g, w / 2, 162, d.f, { anchor: 'middle', size: 11.5, fill: COR.fraco });
+            return { g: g, r: r, num: num, haste: haste, cx: x + w / 2, d: d };
+        });
+        var rastro = seta(raiz, 0, trilhoY, 0, trilhoY, { cor: COR.marca, sw: 3 }).attr('stroke-linecap', 'round');
+        var token = raiz.append('circle').attr('r', 7).attr('cy', trilhoY).attr('fill', COR.marca)
+            .style('filter', 'drop-shadow(0 0 8px ' + COR.marca + ')');
+        var rod = bloco(raiz, 480, Math.min(F.H - 30, trilhoY + 58));
+        texto(rod, 0, 0, 'Atlas SDK e Atlas UI na base, plugin mogai-devops-pipeline v1.5.0 no Claude Code', { anchor: 'middle', size: 13, fill: COR.fraco });
+
+        var XA = tiles[0].cx, XB = tiles[3].cx, INI = 3600, CIC = 11000;
+        reger(id, function (ms) {
+            tiles.forEach(function (t, i) {
+                sobe(t.g, eo(ms, 300 + i * 260, 800), 20);
+                t.haste.attr('opacity', eo(ms, 1000 + i * 260, 600));
+                escrever(t.num.node(), String(Math.round(t.d.n * d3.easeCubicOut(pr(ms, 600 + i * 260, 1600)))));
+            });
+            trilho.attr('opacity', eo(ms, 1900, 800));
+            sobe(rod, eo(ms, 2400, 800));
+            var c = ms - INI;
+            if (c < 0) {
+                token.attr('opacity', 0); rastro.attr('opacity', 0);
+                tiles.forEach(function (t) { t.r.attr('stroke-opacity', .18).attr('fill', COR.card); });
+                return;
+            }
+            var u = c % CIC;
+            var x = lerp(XA, XB, es(u, 0, 7800));
+            var op = u < 500 ? u / 500 : u > 9400 ? Math.max(0, 1 - (u - 9400) / 900) : 1;
+            token.attr('cx', x).attr('opacity', op);
+            rastro.attr('x1', XA).attr('x2', x).attr('opacity', .55 * op);
+            tiles.forEach(function (t) {
+                var k = cl(1 - Math.abs(t.cx - x) / 80, 0, 1) * op;
+                t.r.attr('stroke-opacity', .18 + .82 * k).attr('stroke-width', 1 + 2 * k)
+                    .attr('fill', k > .05 ? COR.brilhoSuave : COR.card);
+            });
+        });
+    }
+
+    /* ==============================================================
+       S02 · As peças saem das duas bibliotecas e montam a aplicação.
+       ============================================================== */
+    function s02(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var NW = 300, NH = 140, AX = 600, AY = T + 30, AW = 320, AH = 270;
+        var fontes = [
+            { t: 'Atlas SDK', s: '.NET 10 | C#', d: 'Infraestrutura, segurança, integração\ne boas práticas de desenvolvimento', y: T + 8, pec: ['Core', 'Data', 'Security.Jwt', 'Queue'] },
+            { t: 'Atlas UI', s: 'Angular 20', d: 'Componentes Angular prontos para\naplicações corporativas modernas', y: T + 166, pec: ['Tabelas', 'Formulários', 'Layout', 'Menu'] }
+        ];
+        var caminhos = [], nodos = [];
+        fontes.forEach(function (f, i) {
+            var g = bloco(raiz, 40, f.y);
+            var r = caixa(g, 0, 0, NW, NH, { rx: 14, stroke: COR.marca }).attr('stroke-opacity', .25);
+            texto(g, 20, 40, f.t, { size: 26, weight: 800 });
+            texto(g, 20, 64, f.s, { size: 14, fill: COR.marca, weight: 600 });
+            texto(g, 20, 94, f.d, { size: 12, fill: COR.suave, lh: 16 });
+            nodos.push({ g: g, r: r });
+            var x1 = 40 + NW, y1 = f.y + NH / 2, x2 = AX, y2 = AY + (i === 0 ? 100 : 190);
+            caminhos.push(raiz.append('path')
+                .attr('d', 'M' + x1 + ',' + y1 + ' C' + (x1 + 130) + ',' + y1 + ' ' + (x2 - 130) + ',' + y2 + ' ' + x2 + ',' + y2)
+                .attr('fill', 'none').attr('stroke', COR.borda).attr('stroke-width', 2).attr('stroke-dasharray', '5 6'));
+        });
+        var app = bloco(raiz, AX, AY);
+        var appR = caixa(app, 0, 0, AW, AH, { rx: 16, stroke: COR.marca }).attr('stroke-opacity', .35);
+        texto(app, 20, 36, 'Aplicação Final', { size: 24, weight: 800 });
+        texto(app, 20, 58, 'Com o Atlas SDK, Atlas UI e a\norientação do Claude Code', { size: 11.5, fill: COR.suave, lh: 15 });
+        var slots = [];
+        for (var i = 0; i < 8; i++) {
+            var col = i % 2, lin = Math.floor(i / 2);
+            var sg = app.append('g').attr('transform', 'translate(' + (20 + col * 146) + ',' + (96 + lin * 40) + ')');
+            var sr = sg.append('rect').attr('width', 134).attr('height', 30).attr('rx', 7)
+                .attr('fill', 'none').attr('stroke', COR.borda).attr('stroke-dasharray', '4 4');
+            var fonte = fontes[i % 2], nome = fonte.pec[Math.floor(i / 2)];
+            var st = texto(sg, 67, 20, nome, { anchor: 'middle', size: 12, weight: 600 });
+            slots.push({ r: sr, t: st });
+        }
+        var pacotes = [];
+        for (var j = 0; j < 8; j++) {
+            var pg = raiz.append('g').attr('opacity', 0);
+            pg.append('rect').attr('x', -48).attr('y', -13).attr('width', 96).attr('height', 26).attr('rx', 7)
+                .attr('fill', COR.fundo).attr('stroke', COR.marca).attr('stroke-width', 1.5);
+            texto(pg, 0, 4.5, fontes[j % 2].pec[Math.floor(j / 2)], { anchor: 'middle', size: 11.5, weight: 600 });
+            pacotes.push(pg);
+        }
+        var pilares = [
+            ['Segurança', 'JWT, RBAC, multi-tenant e auditoria'],
+            ['Integração', 'Mensageria, logging e muito mais'],
+            ['Mais produtividade', 'Padrões, reutilização e consistência']
+        ].map(function (pp, k) {
+            var g = bloco(raiz, 40 + k * 300, T + 330);
+            caixa(g, 0, 0, 280, 58, { rx: 10 });
+            texto(g, 16, 24, pp[0], { size: 14, weight: 700, fill: COR.marca });
+            texto(g, 16, 43, pp[1], { size: 11.5, fill: COR.suave });
+            return g;
+        });
+        var rotas;
+        var INI = 2600, CIC = 13600, LANC = 1150, VIAGEM = 1700;
+        reger(id, function (ms) {
+            if (!rotas) rotas = caminhos.map(function (c) { return amostrar(c.node(), 60); });
+            nodos.forEach(function (n, i) { sobe(n.g, eo(ms, 200 + i * 300, 800)); });
+            sobe(app, eo(ms, 900, 800));
+            caminhos.forEach(function (c, i) { c.attr('opacity', eo(ms, 1400 + i * 200, 700)); });
+            pilares.forEach(function (g, k) { sobe(g, eo(ms, 1800 + k * 220, 700)); });
+            var c = ms - INI, u = c < 0 ? -1 : c % CIC;
+            var reset = u < 0 ? 1 : 1 - eo(u, 11600, 900);
+            var brilhoApp = 0;
+            pacotes.forEach(function (pg, j) {
+                var t0 = j * LANC, k = u < 0 ? 0 : pr(u, t0, VIAGEM);
+                var viajando = u >= t0 && u < t0 + VIAGEM;
+                var chegou = u >= t0 + VIAGEM;
+                if (viajando) {
+                    var pt = rotas[j % 2](d3.easeCubicInOut(k));
+                    pg.attr('opacity', Math.min(1, k * 6)).attr('transform', 'translate(' + pt[0] + ',' + pt[1] + ')');
+                } else pg.attr('opacity', 0);
+                var preenche = chegou ? reset : 0;
+                slots[j].r.attr('fill', preenche > 0 ? COR.brilhoSuave : 'none')
+                    .attr('stroke', preenche > 0 ? COR.marca : COR.borda)
+                    .attr('stroke-dasharray', preenche > 0 ? null : '4 4').attr('opacity', .4 + .6 * Math.max(preenche, .0));
+                slots[j].t.attr('opacity', .25 + .75 * preenche);
+                if (u >= t0 + VIAGEM && u < t0 + VIAGEM + 500) brilhoApp = Math.max(brilhoApp, 1 - (u - t0 - VIAGEM) / 500);
+                var envio = (u >= t0 && u < t0 + 450) ? 1 - (u - t0) / 450 : 0;
+                if (envio > 0) nodos[j % 2].r.attr('stroke-opacity', .25 + .75 * envio);
+            });
+            if (u >= 0 && !pacotes.some(function (pg, j) { return u >= j * LANC && u < j * LANC + 450; }))
+                nodos.forEach(function (n) { n.r.attr('stroke-opacity', .25); });
+            appR.attr('stroke-opacity', .35 + .65 * brilhoApp).attr('stroke-width', 1 + 2 * brilhoApp);
+        });
+    }
+
+    /* ==============================================================
+       S03 · Uma lupa percorre os módulos e marca o que já existe.
+       ============================================================== */
+    function s03(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var linhas = [], chips = [];
+        function chip(g, x, y, w, h, tit, desc, o) {
+            o = o || {};
+            var c = bloco(g, x, y);
+            var r = caixa(c, 0, 0, w, h, { rx: 8 });
+            texto(c, 10, desc ? 18 : h / 2 + 4.5, tit, { size: o.ts || 12, weight: 700, mono: o.mono });
+            if (desc) texto(c, 10, 34, desc, { size: o.ds || 10.5, fill: COR.suave, lh: 13 });
+            var ok = marcaOk(c, w - 2, 2, 7).attr('opacity', 0);
+            var item = { g: c, r: r, ok: ok, cx: x + w / 2, cy: y + h / 2 };
+            chips.push(item);
+            return item;
+        }
+        /* linha A */
+        var la = raiz.append('g'); linhas.push(la);
+        chip(la, 40, T, 432, 52, 'Atlas.Net.Sdk.Core', 'Núcleo, abstrações e configurações base.', { mono: true, ts: 12.5 });
+        chip(la, 488, T, 432, 52, 'Atlas.Net.Sdk.Audit', 'Auditoria e rastreabilidade das operações.', { mono: true, ts: 12.5 });
+        /* linha B */
+        var lb = raiz.append('g'); linhas.push(lb);
+        caixa(lb, 40, T + 62, 880, 62, { rx: 10 });
+        texto(lb, 54, T + 86, 'Atlas.Net.Sdk.Data', { size: 12.5, weight: 700, mono: true });
+        texto(lb, 54, T + 104, 'Camada de persistência e acesso a dados.', { size: 10.5, fill: COR.suave });
+        ['EF Core', 'Oracle / SQL Server', 'Repositories / Query', 'Specification Query'].forEach(function (n, i) {
+            chip(lb, 330 + i * 148, T + 73, 140, 40, n, null, { ts: 11.5 });
+        });
+        /* linha C */
+        var lc = raiz.append('g'); linhas.push(lc);
+        texto(lc, 40, T + 152, 'Provedores de dados', { size: 13, weight: 800, fill: COR.marca });
+        texto(lc, 40, T + 170, 'Suporte a diferentes\nbancos de dados.', { size: 10.5, fill: COR.suave, lh: 13 });
+        [['Data.Providers.Oracle', 'Oracle Database'], ['Data.Providers.PostgreSQL', 'PostgreSQL'],
+         ['Data.Providers.SQLServer', 'SQL Server'], ['Data.Common', 'Recursos e abstrações comuns']].forEach(function (d, i) {
+            chip(lc, 220 + i * 176, T + 136, 168, 48, d[0], d[1], { ts: 11 });
+        });
+        /* linha D */
+        var ld = raiz.append('g'); linhas.push(ld);
+        texto(ld, 40, T + 214, 'Módulos especializados', { size: 13, weight: 800, fill: COR.marca });
+        texto(ld, 40, T + 232, 'Funcionalidades adicionais\npara o ecossistema Atlas.', { size: 10.5, fill: COR.suave, lh: 13 });
+        [['Security.Jwt', 'Autenticação, autorização\ne controle de acesso.'], ['GoogleAuth', 'Autenticação e integração\ncom Google.'],
+         ['Message', 'Envio de e-mails\ne comunicações.'], ['Queue', 'Mensageria com RabbitMQ.'],
+         ['Logger', 'Logging, Elmah\ne monitoramento.'], ['AspNet', 'Integração com\nASP.NET Core.'],
+         ['Notification', 'Notificações e eventos.'], ['Tenant', 'Multi-tenant e gestão\nde locatários.']].forEach(function (d, i) {
+            chip(ld, 220 + (i % 4) * 176, T + 198 + Math.floor(i / 4) * 66, 168, 58, d[0], d[1], { ts: 11.5, ds: 10 });
+        });
+        var rod = bloco(raiz, 480, T + 352);
+        texto(rod, 0, 0, 'Guia do plugin: monorepo Atlassdk-Dotnet, 23 pacotes no feed privado do Azure Artifacts.\nO que cada pacote cobre foi inferido do nome; confirme na documentação antes de fixar numa spec.',
+            { anchor: 'middle', size: 11, fill: COR.fraco, lh: 15 });
+        /* lupa */
+        var lupa = raiz.append('g').attr('opacity', 0);
+        lupa.append('circle').attr('r', 14).attr('fill', COR.brilhoSuave).attr('stroke', COR.marca).attr('stroke-width', 3);
+        lupa.append('line').attr('x1', 10).attr('y1', 10).attr('x2', 22).attr('y2', 22)
+            .attr('stroke', COR.marca).attr('stroke-width', 4).attr('stroke-linecap', 'round');
+
+        var INI = 2600, PASSO = 560, N = chips.length, CIC = N * PASSO + 2400;
+        reger(id, function (ms) {
+            linhas.forEach(function (l, i) { l.attr('opacity', eo(ms, 200 + i * 380, 700)); });
+            rod.attr('opacity', eo(ms, 1900, 700));
+            var c = ms - INI;
+            if (c < 0) {
+                lupa.attr('opacity', 0);
+                chips.forEach(function (ch) { ch.ok.attr('opacity', 0); ch.r.attr('stroke', COR.borda).attr('fill', COR.card); });
+                return;
+            }
+            var u = c % CIC, pos = u / PASSO, idx = Math.min(N - 1, Math.floor(pos));
+            var fim = 1 - eo(u, CIC - 1000, 700);
+            var a = chips[Math.max(0, idx - 1)], b = chips[idx];
+            var k = d3.easeSinInOut(cl((pos - idx) / .55, 0, 1));
+            var xy = idx === 0 ? [b.cx, b.cy] : [lerp(a.cx, b.cx, k), lerp(a.cy, b.cy, k)];
+            if (pos >= N) xy = [chips[N - 1].cx, chips[N - 1].cy];
+            lupa.attr('opacity', Math.min(1, u / 300) * fim)
+                .attr('transform', 'translate(' + (xy[0] + 18) + ',' + (xy[1] - 4) + ')');
+            chips.forEach(function (ch, i) {
+                var visto = pos >= i + .55;
+                var atual = idx === i && pos < N;
+                ch.ok.attr('opacity', visto ? fim : 0);
+                ch.r.attr('stroke', atual ? COR.marca : visto ? COR.ok : COR.borda)
+                    .attr('stroke-opacity', visto && !atual ? .5 * fim + .1 : 1)
+                    .attr('fill', atual ? COR.brilhoSuave : COR.card);
+            });
+        });
+    }
+
+    /* ==============================================================
+       S04 · O código é digitado; depois a tabela carrega, mostra os
+       dados e a troca de página dispara o carregamento de novo.
+       ============================================================== */
+    function s04(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var COD = ['<at-table', '  [data]="usuarios"', '  [columns]="colunas"', '  [loading]="carregando"',
+            '  (onPageChange)="carregarDados($event)">', '</at-table>'];
+        var HL = [
+            '<span class="t-tag">&lt;at-table</span>',
+            '  <span class="t-attr">[data]</span>=<span class="t-str">"usuarios"</span>',
+            '  <span class="t-attr">[columns]</span>=<span class="t-str">"colunas"</span>',
+            '  <span class="t-attr">[loading]</span>=<span class="t-str">"carregando"</span>',
+            '  <span class="t-attr">(onPageChange)</span>=<span class="t-str">"carregarDados($event)"</span><span class="t-tag">&gt;</span>',
+            '<span class="t-tag">&lt;/at-table&gt;</span>'
+        ];
+        var ed = bloco(raiz, 40, T);
+        var edDiv = fo(ed, 0, 0, 440, 196,
+            '<div class="term"><div class="term-bar"><i></i><i></i><i></i><span>Exemplo de uso · componente de tabela (simplificado)</span></div>' +
+            '<div class="term-body">' + COD.map(function () { return '<div class="tl"><span class="tx"></span><span class="cur off"></span></div>'; }).join('') +
+            '</div></div>');
+        var lns = edDiv.selectAll('.tl').nodes();
+        var tb = bloco(raiz, 500, T);
+        var tbDiv = fo(tb, 0, 0, 420, 196,
+            '<div class="term" style="position:relative"><div class="term-bar"><i></i><i></i><i></i><span>Resultado no navegador</span></div>' +
+            '<div style="padding:4px 8px"><table class="tb"><thead><tr><th>Nome</th><th>E-mail</th><th>Status</th></tr></thead><tbody>' +
+            '<tr class="d"><td>Ana Silva</td><td>ana@exemplo.com</td><td><span class="pill ok">Ativo</span></td></tr>' +
+            '<tr class="d"><td>Bruno Costa</td><td>bruno@exemplo.com</td><td><span class="pill ok">Ativo</span></td></tr>' +
+            '<tr class="d"><td>Carla Souza</td><td>carla@exemplo.com</td><td><span class="pill off">Inativo</span></td></tr>' +
+            '</tbody></table><div style="font-size:10.5px;color:var(--mira-text-softer);margin-top:8px">Mostrando 1-3 de 3 · 10 / página</div></div>' +
+            '<div class="skel"><div></div><div></div><div></div><div style="width:60%"></div></div></div>');
+        var rows = tbDiv.selectAll('tr.d').nodes(), skel = tbDiv.select('.skel').node(), skBars = tbDiv.selectAll('.skel div').nodes();
+        var meta = bloco(raiz, 40, T + 210);
+        ['@mogai/atlas-ui · 1.0.37', 'NG-ZORRO 20', 'Tema Falcon (Bootstrap 5.3 + FontAwesome)', '38 componentes no design system']
+            .reduce(function (x, s) {
+                var w = s.length * 6.1 + 22;
+                caixa(meta, x, 0, w, 24, { rx: 12 });
+                texto(meta, x + w / 2, 16, s, { anchor: 'middle', size: 11, fill: COR.suave });
+                return x + w + 8;
+            }, 0);
+        var CATS = [
+            ['Formulários', 'Input, Select, DatePicker,\nCheckbox, Radio, Upload'],
+            ['Tabelas e Dados', 'Tabela, Tree-Table,\nDynamic Grid, Filtros,\nPaginação, Ordenação'],
+            ['Layout e Navegação', 'Header, Sidebar, Menu,\nTabs, Breadcrumb,\nModal, Drawer'],
+            ['Visualização de Dados', 'Gráficos, Estatísticas,\nCards, Progress, Timeline'],
+            ['Interação e Feedback', 'Notificações, Toast,\nLoading, Confirm, Alert'],
+            ['Especializados', 'Audit Timeline, Train Card,\nCapacity Progress']
+        ];
+        var cats = CATS.map(function (c, i) {
+            var g = bloco(raiz, 40 + i * 148, T + 250);
+            var r = caixa(g, 0, 0, 140, 104, { rx: 10 });
+            texto(g, 10, 22, c[0], { size: 11.5, weight: 700, fill: COR.marca });
+            texto(g, 10, 42, c[1], { size: 9.8, fill: COR.suave, lh: 13 });
+            return { g: g, r: r };
+        });
+        var DIG = 600, CPS = 34, total = COD.join('').length, FIM = DIG + total / CPS * 1000 + 300, CIC = 8400;
+        var pintado = false;
+        reger(id, function (ms) {
+            sobe(ed, eo(ms, 0, 600)); sobe(tb, eo(ms, 250, 600));
+            sobe(meta, eo(ms, 600, 700));
+            cats.forEach(function (c, i) { sobe(c.g, eo(ms, 900 + i * 140, 700)); });
+            /* digitação linha a linha */
+            var n = Math.floor(cl((ms - DIG) / 1000 * CPS, 0, total));
+            if (ms < FIM) {
+                pintado = false;
+                var resto = n, ativa = -1;
+                lns.forEach(function (l, i) {
+                    var s = COD[i].slice(0, cl(resto, 0, COD[i].length));
+                    if (resto > 0 && resto <= COD[i].length) ativa = i;
+                    if (resto <= 0 && ativa === -1 && i === 0) ativa = 0;
+                    resto -= COD[i].length;
+                    escrever(l.firstChild, s);
+                    if (l.firstChild.__hl) { l.firstChild.__hl = false; }
+                });
+                lns.forEach(function (l, i) { l.lastChild.className = 'cur' + (i === ativa && piscar(ms) ? '' : ' off'); });
+            } else if (!pintado) {
+                pintado = true;
+                lns.forEach(function (l, i) { l.firstChild.innerHTML = HL[i]; l.firstChild.__s = null; l.lastChild.className = 'cur off'; });
+            }
+            /* tabela: carregando, dados, foco por linha, troca de página */
+            var c = ms - FIM, u = c < 0 ? -1 : c % CIC;
+            var carregando = u < 0 || u < 1700 || u > CIC - 500;
+            skel.style.opacity = carregando ? 1 : Math.max(0, 1 - (u - 1700) / 300);
+            skBars.forEach(function (b, i) { b.style.backgroundPosition = ((ms / 9 + i * 30) % 200) + '% 0'; });
+            rows.forEach(function (r, i) {
+                var k = u < 0 ? 0 : eo(u, 1800 + i * 180, 400) * (1 - eo(u, CIC - 700, 300));
+                r.style.opacity = k;
+                var foco = u > 2800 + i * 1400 && u < 2800 + (i + 1) * 1400;
+                r.className = 'd' + (foco ? ' on' : '');
+            });
+            if (ms >= FIM) {
+                lns[3].className = 'tl' + (carregando ? ' on' : '');
+                lns[1].className = 'tl' + (!carregando && u < 2800 ? ' on' : '');
+                lns[4].className = 'tl' + (u > CIC - 1300 ? ' on' : '');
+            }
+            cats.forEach(function (ct, i) {
+                var on = u >= 0 && Math.floor(u / (CIC / 6)) === i;
+                ct.r.attr('stroke', on ? COR.marca : COR.borda).attr('stroke-opacity', on ? .7 : 1);
+            });
+        });
+    }
+
+    /* ==============================================================
+       S05 · Os quatro vídeos originais tocam; o foco passa de um para
+       o outro enquanto você fala.
+       ============================================================== */
+    function s05(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var V = [
+            ['atlas-ui-autocomplete', 'Storybook · Autocomplete'],
+            ['atlas-ui-atendimentos', 'Port Solutions · Atendimentos'],
+            ['atlas-ui-capacity-card', 'Storybook · CapacityProgressCard'],
+            ['atlas-ui-editor-ferroviario', 'Port Solutions · Editor de despacho ferroviário']
+        ];
+        var disp = F.H - 34 - T, cw = 434, ch = Math.min((disp - 14) / 2, cw * 607 / 1280);
+        var ox = (960 - (2 * cw + 14)) / 2;
+        var cels = V.map(function (v, i) {
+            var g = bloco(raiz, ox + (i % 2) * (cw + 14), T + Math.floor(i / 2) * (ch + 14));
+            var d = fo(g, 0, 0, cw, ch, '<div class="vcell"><video src="assets/video/' + v[0] + '.mp4" muted loop autoplay playsinline preload="auto"></video><span class="vcap">' + v[1] + '</span></div>');
+            var vid = d.select('video').node();
+            vid.muted = true;
+            var tentar = function () { var pp = vid.play(); if (pp && pp.catch) pp.catch(function () {}); };
+            tentar();
+            return { g: g, cel: d.select('.vcell').node(), vid: vid, tentar: tentar };
+        });
+        var rod = bloco(raiz, 480, F.H - 14);
+        texto(rod, 0, 0, 'Vídeos convertidos dos GIFs originais da apresentação do SDK', { anchor: 'middle', size: 11, fill: COR.fraco });
+        var CIC = 4 * 4200, INI = 1800, rodando = false;
+        reger(id, function (ms) {
+            cels.forEach(function (c, i) { sobe(c.g, eo(ms, 150 + i * 220, 800), 18); });
+            rod.attr('opacity', eo(ms, 1200, 700));
+            if (ms > 0 && !rodando) { rodando = true; cels.forEach(function (c) { c.tentar(); }); }
+            if (ms === 0) rodando = false;
+            var u = ms - INI, foco = u < 0 ? -1 : Math.floor((u % CIC) / 4200);
+            cels.forEach(function (c, i) {
+                c.cel.className = 'vcell' + (i === foco ? ' on' : '');
+                c.cel.style.opacity = foco < 0 || i === foco ? 1 : .62;
+            });
+        });
+    }
+
+    /* ==============================================================
+       S06 · Arquitetura PMS: requisições percorrem gateway, APIs e
+       services; o PMS Service publica mensagens que enchem as filas e
+       são consumidas aos poucos.
+       ============================================================== */
+    function s06(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var y0 = T + 2, topH = 236;
+        var linhas = raiz.append('g'), cols = raiz.append('g');
+        function coluna(x, w, tit) {
+            var g = bloco(cols, x, y0);
+            caixa(g, 0, 0, w, topH, { rx: 10 });
+            texto(g, w / 2, 20, tit, { anchor: 'middle', size: 11.5, weight: 800, fill: COR.marca });
+            return g;
+        }
+        function caixinha(g, x, y, w, h, t, d) {
+            var r = caixa(g, x, y, w, h, { rx: 8, fill: COR.fundo });
+            texto(g, x + 9, y + 18, t, { size: 11, weight: 700 });
+            if (d) texto(g, x + 9, y + 33, d, { size: 9.5, fill: COR.suave, lh: 12 });
+            return r;
+        }
+        var cU = coluna(30, 100, 'Usuário / Cliente');
+        pessoa(cU, 26, 58, 48, COR.marca);
+        texto(cU, 50, 140, 'Acessa o sistema\nvia navegador.', { anchor: 'middle', size: 10, fill: COR.suave, lh: 13 });
+        var cG = coluna(154, 120, 'Entrada / Gateway');
+        var gwR = caixinha(cG, 10, 70, 100, 96, 'Gateway', 'Autenticação\nAutorização\nRate Limiting');
+        var cA = coluna(298, 160, 'APIs');
+        var cS = coluna(482, 160, 'Services');
+        var APIS = [['External Integration API', 'Integrações externas'], ['PMS API', 'Funcionalidades do PMS'], ['IAM API', 'Gestão de identidade e acesso']];
+        var SVCS = [['Integration Service', 'Orquestra integrações\ne transformações'], ['PMS Service', 'Regras de negócio do PMS'], ['IAM Service', 'Usuários, perfis,\npermissões e contas']];
+        var apiR = [], svcR = [];
+        for (var i = 0; i < 3; i++) {
+            apiR.push(caixinha(cA, 8, 32 + i * 66, 144, 58, APIS[i][0], APIS[i][1]));
+            svcR.push(caixinha(cS, 8, 32 + i * 66, 144, 58, SVCS[i][0], SVCS[i][1]));
+        }
+        var cM = coluna(666, 130, 'Mensageria');
+        var qR = caixinha(cM, 8, 32, 114, 70, 'Queue Service', 'Publicação e\nconsumo de\nmensagens');
+        caixinha(cM, 8, 150, 114, 58, 'MinIO', 'Armazenamento\nde objetos');
+        seta(cM, 65, 102, 65, 150, { tracejado: true });
+        var cR = coluna(820, 110, 'RabbitMQ');
+        var filas = ['Fila 1', 'Fila 2', 'Fila 3', '…', 'Fila N'].map(function (n, k) {
+            var y = 32 + k * 40;
+            caixa(cR, 10, y, 90, 32, { rx: 6, fill: COR.fundo });
+            var nivel = cR.append('rect').attr('x', 10).attr('y', y).attr('height', 32).attr('rx', 6)
+                .attr('fill', COR.brilho).attr('width', 0);
+            texto(cR, 55, y + 20, n, { anchor: 'middle', size: 10.5, weight: 600 });
+            return { nivel: nivel, n: n === '…' ? null : k };
+        });
+        /* faixa Atlas SDK */
+        var band = bloco(raiz, 30, y0 + topH + 12);
+        var bandR = caixa(band, 0, 0, 900, 62, { rx: 10, stroke: COR.marca }).attr('stroke-opacity', .45).attr('fill', COR.brilhoSuave);
+        texto(band, 16, 26, 'Atlas SDK', { size: 16, weight: 800 });
+        texto(band, 16, 45, 'Biblioteca modular para .NET 10', { size: 10, fill: COR.suave });
+        var modR = ['Core', 'Data', 'Security.Jwt', 'Queue', 'Audit', 'Tenant'].map(function (n, k) {
+            var r = caixa(band, 236 + k * 110, 12, 102, 38, { rx: 8, fill: COR.fundo });
+            texto(band, 236 + k * 110 + 51, 36, n, { anchor: 'middle', size: 11.5, weight: 700 });
+            return r;
+        });
+        /* camada de dados */
+        var dados = bloco(raiz, 30, y0 + topH + 86);
+        caixa(dados, 0, 0, 900, 64, { rx: 10 });
+        texto(dados, 16, 27, 'Camada de dados', { size: 14, weight: 800, fill: COR.marca });
+        texto(dados, 16, 45, 'Bancos e repositórios corporativos', { size: 10, fill: COR.suave });
+        var dbR = [['Outbound IAM', 'Oracle / SQL Server'], ['Outbound PMS', 'Oracle / SQL Server'], ['Oracle', 'Banco de dados principal do PMS']].map(function (d, k) {
+            return caixinha(dados, 236 + k * 220, 10, 210, 44, d[0], d[1]);
+        });
+        /* conexões fixas */
+        var gy = y0 + 70 + 48;
+        seta(linhas, 130, gy, 164, gy);
+        for (var j = 0; j < 3; j++) {
+            var ay = y0 + 32 + j * 66 + 29;
+            seta(linhas, 264, gy, 306, ay);
+            seta(linhas, 450, ay, 490, ay);
+        }
+        seta(linhas, 634, y0 + 32 + 66 + 29, 674, y0 + 67);
+        seta(linhas, 788, y0 + 67, 830, y0 + 67);
+        seta(linhas, 562, y0 + topH, 562, y0 + topH + 12, { tracejado: true });
+        seta(linhas, 480, y0 + topH + 74, 480, y0 + topH + 86, { tracejado: true });
+        /* requisição e mensagem */
+        var req = raiz.append('circle').attr('r', 6).attr('fill', COR.marca).style('filter', 'drop-shadow(0 0 6px ' + COR.marca + ')');
+        var msg = raiz.append('rect').attr('width', 16).attr('height', 11).attr('rx', 2).attr('fill', COR.acento);
+        var nivelFila = [0, 0, 0, 0, 0];
+        var INI = 2200, CIC = 4600;
+        reger(id, function (ms) {
+            [cU, cG, cA, cS, cM, cR].forEach(function (g, k) { sobe(g, eo(ms, 100 + k * 170, 700)); });
+            sobe(band, eo(ms, 1200, 700)); sobe(dados, eo(ms, 1450, 700));
+            linhas.attr('opacity', eo(ms, 1300, 700));
+            var c = ms - INI;
+            if (c < 0) {
+                req.attr('opacity', 0); msg.attr('opacity', 0);
+                filas.forEach(function (f) { f.nivel.attr('width', 0); });
+                return;
+            }
+            var rodada = Math.floor(c / CIC), u = c % CIC, alvo = rodada % 3;
+            var ay = y0 + 32 + alvo * 66 + 29;
+            var rota = trajeto([[100, gy], [164, gy], [214, gy], [264, gy], [306, ay], [450, ay], [490, ay], [562, ay],
+                [562, y0 + topH + 30], [480, y0 + topH + 110]]);
+            var k = es(u, 0, 2900);
+            var pt = rota(k);
+            req.attr('cx', pt[0]).attr('cy', pt[1]).attr('opacity', u < 3100 ? 1 : 1 - pr(u, 3100, 400));
+            gwR.attr('stroke', k > .1 && k < .25 ? COR.marca : COR.borda);
+            apiR.forEach(function (r, q) { r.attr('stroke', q === alvo && k > .3 && k < .5 ? COR.marca : COR.borda); });
+            svcR.forEach(function (r, q) { r.attr('stroke', q === alvo && k > .45 && k < .75 ? COR.marca : COR.borda); });
+            var naFaixa = k > .7 && k < .88;
+            bandR.attr('stroke-opacity', naFaixa ? 1 : .45);
+            modR.forEach(function (r, q) { r.attr('stroke', naFaixa && q === 1 ? COR.marca : COR.borda); });
+            dbR.forEach(function (r) { r.attr('stroke', k > .9 && u < 3300 ? COR.marca : COR.borda); });
+            /* PMS Service publica uma mensagem na fila */
+            var fila = rodada % 3;
+            if (alvo === 1 && u > 1700 && u < 3300) {
+                var m = es(u, 1700, 1500);
+                var mr = trajeto([[634, y0 + 127], [674, y0 + 67], [788, y0 + 67], [830, y0 + 48 + fila * 40]])(m);
+                msg.attr('x', mr[0] - 8).attr('y', mr[1] - 5).attr('opacity', 1);
+                qR.attr('stroke', m > .2 && m < .6 ? COR.marca : COR.borda);
+            } else { msg.attr('opacity', 0); qR.attr('stroke', COR.borda); }
+            /* nível das filas: sobe quando chega mensagem, esvazia devagar (consumo assíncrono) */
+            filas.forEach(function (f, q) {
+                if (f.n === null) return;
+                var alvoFila = Math.min(q, 2);
+                var chegou = alvo === 1 && u >= 3200 && fila === alvoFila && q < 3;
+                var base = (Math.sin(ms / 2400 + q * 1.7) * .5 + .5) * .35;
+                var pico = chegou ? .9 * (1 - pr(u, 3200, 1400)) : 0;
+                f.nivel.attr('width', 90 * cl(base + pico, 0, 1));
+            });
+        });
+    }
+
+    /* ==============================================================
+       S08 · O desenvolvedor pede, o Claude Code busca o contexto do
+       Atlas Knowledge, devolve código e o desenvolvedor revisa.
+       ============================================================== */
+    function s08(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var dev = bloco(raiz, 30, T + 50);
+        var devR = caixa(dev, 0, 0, 190, 170, { rx: 14 });
+        pessoa(dev, 71, 14, 48, COR.marca);
+        texto(dev, 95, 92, 'Desenvolvedor', { anchor: 'middle', size: 16, weight: 800 });
+        texto(dev, 95, 114, 'Define o objetivo\ne revisa o resultado.', { anchor: 'middle', size: 11.5, fill: COR.suave, lh: 15 });
+        var revisado = marcaOk(dev, 165, 24, 11).attr('opacity', 0);
+        var cc = bloco(raiz, 300, T + 30);
+        var ccR = caixa(cc, 0, 0, 330, 210, { rx: 14, stroke: COR.marca }).attr('stroke-opacity', .4);
+        texto(cc, 20, 34, 'Claude Code', { size: 20, weight: 800 });
+        texto(cc, 20, 54, 'Agente de IA', { size: 12, fill: COR.marca, weight: 600 });
+        var CHK = ['Entende o contexto do projeto', 'Consulta a documentação Atlas', 'Aplica os padrões da empresa', 'Gera e refatora código'];
+        var checks = CHK.map(function (s, k) {
+            var g = cc.append('g').attr('transform', 'translate(20,' + (80 + k * 32) + ')');
+            var bg = g.append('circle').attr('cx', 9).attr('cy', 0).attr('r', 9).attr('fill', 'none').attr('stroke', COR.borda).attr('stroke-width', 1.5);
+            var ok = marcaOk(g, 9, 0, 9).attr('opacity', 0);
+            texto(g, 28, 4.5, s, { size: 13, fill: COR.suave });
+            return ok;
+        });
+        var kn = bloco(raiz, 700, T);
+        texto(kn, 0, 18, 'Atlas Knowledge', { size: 16, weight: 800, fill: COR.marca });
+        texto(kn, 0, 36, 'Documentação, padrões e boas práticas\npara os agentes de IA.', { size: 10.5, fill: COR.suave, lh: 13 });
+        var DOCS = [['CLAUDE.md e AGENTS.md', 'Regras do projeto · padrões de\ndesenvolvimento · diretrizes do Atlas'],
+            ['Documentação Atlas', 'spec.md por pacote · patterns ·\nrecipes · exemplos de código · ADRs'],
+            ['Padrões de Projeto', 'Arquitetura · convenções · boas\npráticas · dependências · regras']];
+        var docs = DOCS.map(function (d, k) {
+            var r = caixa(kn, 0, 62 + k * 74, 230, 66, { rx: 10 });
+            texto(kn, 12, 62 + k * 74 + 21, d[0], { size: 12, weight: 700 });
+            texto(kn, 12, 62 + k * 74 + 38, d[1], { size: 9.8, fill: COR.suave, lh: 12.5 });
+            return { r: r, x: 700 + 115, y: T + 62 + k * 74 + 33 };
+        });
+        var ben = bloco(raiz, 30, T + 300);
+        var bens = ['Menos dúvidas', 'Decisões mais rápidas', 'Código alinhado aos padrões', 'Menos retrabalho'].map(function (s, k) {
+            var r = caixa(ben, k * 228, 0, 216, 40, { rx: 20 });
+            texto(ben, k * 228 + 108, 25, s, { anchor: 'middle', size: 12.5, weight: 600 });
+            return r;
+        });
+        function pilula(rotulo) {
+            var g = raiz.append('g').attr('opacity', 0);
+            var w = rotulo.length * 7 + 26;
+            g.append('rect').attr('x', -w / 2).attr('y', -13).attr('width', w).attr('height', 26).attr('rx', 13)
+                .attr('fill', COR.fundo).attr('stroke', COR.marca).attr('stroke-width', 1.5);
+            texto(g, 0, 4.5, rotulo, { anchor: 'middle', size: 12, weight: 600 });
+            return g;
+        }
+        var pObj = pilula('objetivo'), pCod = pilula('código');
+        var pDocs = DOCS.map(function () {
+            var g = raiz.append('g').attr('opacity', 0);
+            g.append('path').attr('d', 'M-9,-12 h12 l6,6 v18 h-18 z').attr('fill', COR.acento);
+            g.append('path').attr('d', 'M3,-12 v6 h6').attr('fill', 'none').attr('stroke', COR.fundo).attr('stroke-width', 1.4);
+            return g;
+        });
+        function mover(g, a, b, k) { g.attr('transform', 'translate(' + lerp(a[0], b[0], k) + ',' + (lerp(a[1], b[1], k) - Math.sin(k * Math.PI) * 26) + ')'); }
+        var A_DEV = [220, T + 135], A_CC = [300, T + 135], CC_IN = [630, T + 135];
+        var INI = 2400, CIC = 12400;
+        reger(id, function (ms) {
+            sobe(dev, eo(ms, 100, 700)); sobe(cc, eo(ms, 350, 700)); sobe(kn, eo(ms, 600, 700)); sobe(ben, eo(ms, 1100, 700));
+            var c = ms - INI, u = c < 0 ? -1 : c % CIC;
+            if (u < 0) { [pObj, pCod].concat(pDocs).forEach(function (g) { g.attr('opacity', 0); }); checks.forEach(function (o) { o.attr('opacity', 0); }); revisado.attr('opacity', 0); return; }
+            var fim = 1 - eo(u, CIC - 1000, 700);
+            /* objetivo: dev -> Claude */
+            var k0 = es(u, 0, 1400);
+            pObj.attr('opacity', u < 1500 ? 1 : 0); mover(pObj, A_DEV, A_CC, k0);
+            /* documentos: Knowledge -> Claude, um por vez */
+            pDocs.forEach(function (g, k) {
+                var t0 = 1900 + k * 1300, kk = es(u, t0, 1000);
+                g.attr('opacity', u > t0 && u < t0 + 1050 ? 1 : 0);
+                mover(g, [docs[k].x - 115, docs[k].y], CC_IN, kk);
+                docs[k].r.attr('stroke', u > t0 - 200 && u < t0 + 400 ? COR.marca : COR.borda);
+                checks[k].attr('opacity', eo(u, t0 + 1000, 300) * fim);
+            });
+            /* código: Claude -> dev */
+            var t3 = 6200, k3 = es(u, t3, 1400);
+            pCod.attr('opacity', u > t3 && u < t3 + 1450 ? 1 : 0); mover(pCod, A_CC, A_DEV, k3);
+            checks[3].attr('opacity', eo(u, t3 - 100, 300) * fim);
+            revisado.attr('opacity', eo(u, t3 + 1700, 400) * fim);
+            devR.attr('stroke', u > t3 + 1500 && u < t3 + 3200 ? COR.ok : COR.borda);
+            ccR.attr('stroke-opacity', u > 1300 && u < 6400 ? .9 : .4);
+            bens.forEach(function (r, k) { r.attr('stroke', Math.floor(u / (CIC / 4)) === k ? COR.marca : COR.borda); });
+        });
+    }
+
+    /* ==============================================================
+       S09 · Os números do plugin e um marcador que percorre os
+       princípios, um por vez.
+       ============================================================== */
+    function s09(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var NUM = [['4', 'comandos', 'ship-feature, evolve-feature, clarify, atlas-audit'],
+            ['11', 'agentes', 'especialistas acionados pelos comandos'],
+            ['3', 'hooks', 'bloqueio de segredos, formatação, testes obrigatórios'],
+            ['1', 'servidor MCP', 'Azure DevOps: work items, repositórios, PRs, iterações'],
+            ['2', 'skills', 'Spec-Driven Development e Domain-Driven Design']];
+        var esq = NUM.map(function (n, k) {
+            var g = bloco(raiz, 40, T + 4 + k * 76);
+            caixa(g, 0, 0, 440, 66, { rx: 12 });
+            texto(g, 52, 47, n[0], { anchor: 'middle', size: 40, weight: 800, fill: COR.marca });
+            texto(g, 100, 28, n[1], { size: 17, weight: 700 });
+            texto(g, 100, 48, n[2], { size: 11.5, fill: COR.suave });
+            return g;
+        });
+        texto(raiz, 520, T + 18, 'PRINCÍPIOS', { size: 11, weight: 700, fill: COR.fraco }).attr('letter-spacing', '.16em');
+        var PRI = [['A spec é o artefato central', 'O código sai da especificação, não o contrário.'],
+            ['Reusar o Atlas primeiro', 'Antes de implementar do zero, verifique se um\nmódulo do Atlas SDK já resolve.'],
+            ['Nenhuma ambiguidade passa adiante', 'Decisões de negócio em aberto vão ao humano\nno gate /clarify.'],
+            ['Humano no controle', 'Nenhum merge, deploy ou criação de work item\nsem aprovação explícita.'],
+            ['Segurança fail-closed', 'Se um hook de segurança não consegue avaliar\numa ação, ele bloqueia.']];
+        var dir = PRI.map(function (pp, k) {
+            var g = bloco(raiz, 520, T + 30 + k * 72);
+            var r = caixa(g, 0, 0, 400, 64, { rx: 10 });
+            texto(g, 18, 23, pp[0], { size: 13.5, weight: 700 });
+            texto(g, 18, 41, pp[1], { size: 10.8, fill: COR.suave, lh: 13.5 });
+            return { g: g, r: r };
+        });
+        var marcador = raiz.append('rect').attr('x', 520).attr('width', 4).attr('height', 64).attr('rx', 2).attr('fill', COR.marca);
+        var INI = 2600, PASSO = 2500, CIC = 5 * PASSO + 1500;
+        reger(id, function (ms) {
+            esq.forEach(function (g, k) { sobe(g, eo(ms, 100 + k * 180, 700), 18); });
+            dir.forEach(function (d, k) { sobe(d.g, eo(ms, 900 + k * 180, 700), 18); });
+            var c = ms - INI, u = c < 0 ? -1 : c % CIC;
+            var idx = u < 0 ? -1 : Math.min(4, Math.floor(u / PASSO));
+            var desc = u > 5 * PASSO;
+            var yAlvo = T + 30 + Math.max(0, idx) * 72, yAnt = T + 30 + Math.max(0, idx - 1) * 72;
+            var k2 = u < 0 ? 0 : es(u - idx * PASSO, 0, 700);
+            marcador.attr('y', idx <= 0 ? T + 30 : lerp(yAnt, yAlvo, k2)).attr('opacity', u < 0 ? 0 : desc ? 1 - pr(u, 5 * PASSO, 700) : Math.min(1, u / 400));
+            dir.forEach(function (d, k) {
+                var on = k === idx && !desc;
+                d.r.attr('stroke', on ? COR.marca : COR.borda).attr('fill', on ? COR.brilhoSuave : COR.card);
+            });
+        });
+    }
+
+    /* ==============================================================
+       S11 · Os comandos reais de instalação, autenticação e
+       verificação, digitados em ordem; o trilho de etapas acompanha.
+       ============================================================== */
+    function s11(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var L = [
+            { p: '$ ', s: 'claude plugin marketplace add git@github.com-mogai-devops-pipeline:mogaigit/mogai-devops-pipeline.git', e: 0, t: 0 },
+            { p: '$ ', s: 'claude plugin install mogai-devops-pipeline@mogai-devops-pipeline', e: 0, t: 0 },
+            { p: '$ ', s: 'az login', e: 1, t: 0 },
+            { p: '❯ ', s: '/mcp              # deve listar o azure-devops como conectado', e: 2, t: 1 },
+            { p: '❯ ', s: '/reload-plugins   # recarrega depois de atualizar o plugin', e: 2, t: 1 }
+        ];
+        var ETAPAS = [['1', 'Instalar', 'marketplace + install'], ['2', 'Autenticar', 'az login'], ['3', 'Conferir', '/mcp e /reload-plugins']];
+        var et = ETAPAS.map(function (e, k) {
+            var g = bloco(raiz, 40, T + 6 + k * 96);
+            var r = caixa(g, 0, 0, 170, 84, { rx: 12 });
+            var n = texto(g, 18, 40, e[0], { size: 30, weight: 800, fill: COR.fraco });
+            texto(g, 50, 34, e[1], { size: 15, weight: 700 });
+            texto(g, 50, 54, e[2], { size: 10.5, fill: COR.suave });
+            return { g: g, r: r, n: n };
+        });
+        function terminal(y, h, nome, idx) {
+            var g = bloco(raiz, 230, y);
+            var d = fo(g, 0, 0, 690, h, '<div class="term"><div class="term-bar"><i></i><i></i><i></i><span>' + nome + '</span></div><div class="term-body">' +
+                idx.map(function (i) { return '<div class="tl"><span class="tp">' + esc(L[i].p) + '</span><span class="tx"></span><span class="cur off"></span></div>'; }).join('') + '</div></div>');
+            d.selectAll('.tl').nodes().forEach(function (n, j) { L[idx[j]].no = n; });
+            return g;
+        }
+        var tA = terminal(T + 6, 120, 'Terminal', [0, 1, 2]);
+        var tB = terminal(T + 140, 82, 'Claude Code', [3, 4]);
+        var nota = bloco(raiz, 230, T + 238);
+        fo(nota, 0, 0, 690, 74, '<div class="card" style="padding:9px 12px"><div class="k">Para testar uma cópia local sem instalar</div><div class="mono" style="font-size:11.5px;color:var(--mira-accent-2)">claude plugin validate ./mogai-devops-pipeline<br>claude --plugin-dir /caminho/para/mogai-devops-pipeline</div></div>');
+        var CPS = 40, t = 500;
+        L.forEach(function (l) { l.ini = t; l.fim = t + l.s.length / CPS * 1000; t = l.fim + 350; });
+        var FIM = t + 400, PASSO = 3000, CIC = 3 * PASSO;
+        reger(id, function (ms) {
+            et.forEach(function (e, k) { sobe(e.g, eo(ms, k * 160, 600)); });
+            sobe(tA, eo(ms, 100, 600)); sobe(tB, eo(ms, 300, 600)); sobe(nota, eo(ms, FIM - 600, 700));
+            var ativa = -1;
+            L.forEach(function (l, i) {
+                var n = Math.floor(cl((ms - l.ini) / 1000 * CPS, 0, l.s.length));
+                escrever(l.no.children[1], l.s.slice(0, n));
+                if (ms >= l.ini && ms < l.fim + 350) ativa = i;
+            });
+            if (ms >= FIM) ativa = -1;
+            var u = ms - FIM, foco = u < 0 ? -1 : Math.floor((u % CIC) / PASSO);
+            L.forEach(function (l, i) {
+                l.no.children[2].className = 'cur' + (i === ativa && piscar(ms) ? '' : ' off');
+                l.no.className = 'tl' + (foco >= 0 && l.e === foco ? ' on' : '');
+            });
+            var etapaAtual = ativa >= 0 ? L[ativa].e : foco;
+            et.forEach(function (e, k) {
+                var on = k === etapaAtual;
+                e.r.attr('stroke', on ? COR.marca : COR.borda).attr('fill', on ? COR.brilhoSuave : COR.card);
+                e.n.attr('fill', on ? COR.marca : COR.fraco);
+            });
+        });
+    }
+
+    /* ==============================================================
+       S12 · Os dois caminhos se acendem em alternância, e o mesmo
+       destaque aparece na linha certa da captura real.
+       ============================================================== */
+    function s12(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var colA = bloco(raiz, 40, T), colB = bloco(raiz, 490, T);
+        var dA = fo(colA, 0, 0, 430, 236, '<div class="card"><div class="k">Projeto novo (greenfield)</div><h4><code style="font-size:14px">ship-feature</code></h4>' +
+            '<ul><li>Sistema ou módulo criado do zero</li><li>requisitos → clarificação → especificação → arquitetura → implementação (backend e frontend em paralelo) → infra → testes → documentação → resumo</li></ul>' +
+            '<p class="mono" style="margin-top:10px;font-size:10.5px;color:var(--mira-accent-2)">/mogai-devops-pipeline:ship-feature "&lt;descrição ou caminho do briefing&gt;"</p></div>');
+        var dB = fo(colB, 0, 0, 430, 236, '<div class="card"><div class="k">Sistema existente</div><h4><code style="font-size:14px">evolve-feature</code></h4>' +
+            '<ul><li><code>codebase-discovery</code> primeiro, gera o <code>discovery.md</code></li><li>Modo delta: só o que muda</li><li>Preserva contratos e convenções e protege contra regressão</li><li>Para quando não há testes ou CLAUDE.md próprio</li></ul>' +
+            '<p class="mono" style="margin-top:10px;font-size:10.5px;color:var(--mira-accent-2)">/mogai-devops-pipeline:evolve-feature "&lt;mudança desejada&gt;" "&lt;repositório/projeto alvo&gt;"</p></div>');
+        var cA = dA.select('.card').node(), cB = dB.select('.card').node();
+        var sc = bloco(raiz, 40, T + 252);
+        var dim = caber(1912, 265, 880, 122);
+        caixa(sc, 0, 0, 880, dim.h, { rx: 8, fill: COR.fundo });
+        imagem(sc, cap('01'), 0, 0, 880, dim.h);
+        var s = dim.h / 265;
+        var hl = sc.append('rect').attr('x', 4).attr('width', 872).attr('rx', 5).attr('fill', COR.brilhoSuave)
+            .attr('stroke', COR.marca).attr('stroke-width', 1.5);
+        var leg = bloco(raiz, 480, T + 252 + dim.h + 22);
+        texto(leg, 0, 0, 'Captura real: o autocomplete do Claude Code lista os dois pipelines do plugin', { anchor: 'middle', size: 11.5, fill: COR.fraco });
+        var INI = 2000, CIC = 10400;
+        reger(id, function (ms) {
+            sobe(colA, eo(ms, 0, 700)); sobe(colB, eo(ms, 250, 700)); sobe(sc, eo(ms, 700, 700)); sobe(leg, eo(ms, 1000, 700));
+            var c = ms - INI, u = c < 0 ? -1 : c % CIC;
+            var lado = u < 0 ? -1 : u < 4800 ? 0 : u < 5200 ? -1 : u < 10000 ? 1 : -1;
+            cA.className = 'card' + (lado === 0 ? ' on' : '');
+            cB.className = 'card' + (lado === 1 ? ' on' : '');
+            var y = lado === 1 ? 147 : 106, h = lado === 1 ? 40 : 40;
+            hl.attr('y', y * s).attr('height', h * s).attr('opacity', lado < 0 ? 0 : .9);
+        });
+    }
+
+    /* ==============================================================
+       S13 · A esteira: um token percorre os agentes, para no gate do
+       /clarify, se divide nos implementers, para antes de apply/deploy
+       e termina no resumo para revisão humana.
+       ============================================================== */
+    function s13(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var W = 160, H = 64, G = 25, X0 = 30, Y1 = T + 30, Y2 = T + 236;
+        function xi(i) { return X0 + i * (W + G); }
+        var N = [
+            { x: xi(0), y: Y1, t: 'Pedido / briefing', m: 'você descreve', a: '' },
+            { x: xi(1), y: Y1, t: 'requirements-analyst', m: 'sonnet', a: 'backlog.md' },
+            { x: xi(2), y: Y1, t: '/clarify', m: 'GATE · você responde', a: 'PRONTO PARA SPEC', gate: true },
+            { x: xi(3), y: Y1, t: 'spec-writer', m: 'sonnet · reusa o Atlas', a: 'spec.md' },
+            { x: xi(4), y: Y1, t: 'devops-architect', m: 'sonnet', a: 'arch.md' },
+            { x: xi(4), y: Y2, t: 'implementers', m: 'backend ‖ frontend · sonnet', a: 'código', duplo: true },
+            { x: xi(3), y: Y2, t: 'devops-engineer', m: 'sonnet', a: 'IaC + CI/CD', pare: true },
+            { x: xi(2), y: Y2, t: 'test-runner', m: 'haiku', a: 'testes' },
+            { x: xi(1), y: Y2, t: 'doc-writer', m: 'haiku', a: 'TECHNICAL · USER-GUIDE' },
+            { x: xi(0), y: Y2, t: 'Resumo', m: 'para revisão humana', a: '' }
+        ];
+        var trilho = raiz.append('g');
+        for (var i = 1; i < N.length; i++) {
+            var a = N[i - 1], b = N[i];
+            seta(trilho, a.x + W / 2, a.y + H / 2, b.x + W / 2, b.y + H / 2, { tracejado: true, sw: 2 });
+        }
+        var nos = N.map(function (n) {
+            var g = bloco(raiz, n.x, n.y);
+            var r = caixa(g, 0, 0, W, H, { rx: 12, fill: COR.fundo, stroke: n.gate ? COR.marca : COR.borda });
+            if (n.duplo) {
+                texto(g, 10, 20, 'backend-implementer', { size: 11.5, weight: 700, mono: true });
+                texto(g, 10, 38, 'frontend-implementer', { size: 11.5, weight: 700, mono: true });
+                texto(g, 10, 55, 'em paralelo · sonnet', { size: 10, fill: COR.fraco });
+            } else {
+                texto(g, 12, 27, n.t, { size: n.t.length > 16 ? 12 : 13.5, weight: 700, mono: n.t.indexOf('-') > 0 || n.t[0] === '/' });
+                texto(g, 12, 46, n.m, { size: 10.5, fill: n.gate ? COR.marca : COR.fraco });
+            }
+            var art = g.append('g').attr('opacity', 0);
+            if (n.a) {
+                var w = Math.min(W, n.a.length * 6.3 + 18);
+                art.append('rect').attr('x', 0).attr('y', H + 8).attr('width', w).attr('height', 24).attr('rx', 6)
+                    .attr('fill', COR.brilhoSuave).attr('stroke', COR.marca).attr('stroke-opacity', .6);
+                texto(art, 9, H + 24, n.a, { size: 10.5, fill: COR.acento, mono: true });
+            }
+            return { g: g, r: r, art: art, n: n };
+        });
+        var delta = bloco(raiz, 480, Y2 + H + 66);
+        texto(delta, 0, 0, 'No evolve-feature, o codebase-discovery roda primeiro e gera o discovery.md;\nas etapas seguintes trabalham em modo delta: só o que muda, preservando contratos e convenções.', { anchor: 'middle', size: 11.5, fill: COR.fraco, lh: 16 });
+        var balao = raiz.append('g').attr('opacity', 0);
+        balao.append('circle').attr('r', 15).attr('fill', COR.marca);
+        var balaoT = texto(balao, 0, 6, '?', { anchor: 'middle', size: 18, weight: 800, fill: COR.fundo });
+        var pare = raiz.append('g').attr('opacity', 0).attr('transform', 'translate(' + (N[6].x + W / 2) + ',' + (N[6].y - 18) + ')');
+        pare.append('rect').attr('x', -92).attr('y', -13).attr('width', 184).attr('height', 26).attr('rx', 13)
+            .attr('fill', COR.fundo).attr('stroke', COR.marca);
+        texto(pare, 0, 4.5, 'para antes de apply/deploy', { anchor: 'middle', size: 11, weight: 700, fill: COR.marca });
+        var tokA = raiz.append('circle').attr('r', 8).attr('fill', COR.marca).style('filter', 'drop-shadow(0 0 8px ' + COR.marca + ')');
+        var tokB = raiz.append('circle').attr('r', 8).attr('fill', COR.marca).style('filter', 'drop-shadow(0 0 8px ' + COR.marca + ')');
+        function c(i) { return { x: N[i].x + W / 2, y: N[i].y + H / 2 }; }
+        /* chaves: [t, nó] ; a parada no nó é a mesma posição repetida */
+        var ROT = [[0, 0], [400, 0], [1400, 1], [2200, 1], [3000, 2], [5000, 2], [5800, 3], [6600, 3], [7400, 4], [8000, 4],
+            [8900, 5], [10000, 5], [10800, 6], [12000, 6], [12800, 7], [13600, 7], [14400, 8], [15000, 8], [15800, 9]];
+        var kf = chaves(ROT.map(function (r) { var q = c(r[1]); return { t: r[0], x: q.x, y: q.y }; }));
+        var CHEGA = [0, 1400, 3000, 5800, 7400, 8900, 10800, 12800, 14400, 15800];
+        var INI = 2200, CIC = 18600;
+        reger(id, function (ms) {
+            trilho.attr('opacity', eo(ms, 200, 800)); sobe(delta, eo(ms, 1500, 700));
+            nos.forEach(function (o, i) { sobe(o.g, eo(ms, 100 + i * 120, 600), 12); });
+            var u = ms - INI;
+            if (u < 0) { tokA.attr('opacity', 0); tokB.attr('opacity', 0); balao.attr('opacity', 0); pare.attr('opacity', 0); nos.forEach(function (o) { o.art.attr('opacity', 0); }); return; }
+            u = u % CIC;
+            var fim = 1 - eo(u, CIC - 1200, 800);
+            var pt = kf(u);
+            var dividido = u > 8900 && u < 10000;
+            var abre = dividido ? Math.sin(pr(u, 8900, 1100) * Math.PI) : 0;
+            tokA.attr('cx', pt[0]).attr('cy', pt[1] - 14 * abre).attr('opacity', Math.min(1, u / 300) * fim);
+            tokB.attr('cx', pt[0]).attr('cy', pt[1] + 14 * abre).attr('opacity', dividido ? 1 : 0);
+            nos.forEach(function (o, i) {
+                o.art.attr('opacity', eo(u, CHEGA[i] + 500, 400) * fim);
+                var aqui = Math.hypot(pt[0] - (o.n.x + W / 2), pt[1] - (o.n.y + H / 2)) < 6;
+                o.r.attr('stroke', aqui || o.n.gate ? COR.marca : COR.borda).attr('stroke-width', aqui ? 2.5 : 1)
+                    .attr('fill', aqui ? COR.brilhoSuave : COR.fundo);
+            });
+            var q = c(2);
+            balao.attr('transform', 'translate(' + (q.x + 66) + ',' + (q.y - 34) + ')').attr('opacity', janela(u, 3100, 5000, 300));
+            escrever(balaoT.node(), u < 4200 ? '?' : '✓');
+            balao.select('circle').attr('fill', u < 4200 ? COR.marca : COR.ok);
+            pare.attr('opacity', janela(u, 10900, 12000, 300));
+        });
+    }
+
+    /* visor de capturas: empilha as imagens e o quadro decide a opacidade */
+    function visor(raiz, x, y, w, h, nums) {
+        var g = bloco(raiz, x, y);
+        caixa(g, 0, 0, w, h, { rx: 10, fill: COR.fundo });
+        var imgs = nums.map(function (n) {
+            var d = caber(CAP[n][0], CAP[n][1], w - 16, h - 16);
+            return imagem(g, cap(n), (w - d.w) / 2, (h - d.h) / 2, d.w, d.h).attr('opacity', 0);
+        });
+        return { g: g, imgs: imgs };
+    }
+    /* ==============================================================
+       S17 · Caso real, parte 2: as capturas do Azure DevOps passam no
+       visor, a tira de miniaturas acompanha e o contador chega a 9.
+       ============================================================== */
+    function s17(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var NUMS = ['10', '11', '12', '13', '14', '15', '16', '17'];
+        var LEG = ['Lista os 5 projetos da organização Mogai pelo MCP', 'Item pai: 6292 Gestão de acesso', 'Time: Port Solutions Ternium',
+            'Iteração: sem iteração, no backlog', 'Granularidade: 1 User Story por história', 'Revisão das respostas antes de enviar',
+            '9 cards criados: #6423 a #6431, commits com AB#', 'O backlog no Azure Boards'];
+        var topo = bloco(raiz, 30, T);
+        var passo = texto(topo, 0, 16, '', { size: 11, fill: COR.fraco, mono: true });
+        var leg = texto(topo, 0, 38, '', { size: 15, weight: 700 });
+        var cont = bloco(raiz, 930, T);
+        var contN = texto(cont, 0, 36, '0', { anchor: 'end', size: 34, weight: 800, fill: COR.marca });
+        texto(cont, -48, 34, 'cards criados', { anchor: 'end', size: 12, fill: COR.suave });
+        var thH = 52, vy = T + 52, vh = F.H - 30 - thH - 12 - vy;
+        var v = visor(raiz, 30, vy, 900, vh, NUMS);
+        var tira = bloco(raiz, 30, vy + vh + 12);
+        var thW = (900 - 7 * 8) / 8;
+        var thumbs = NUMS.map(function (n, k) {
+            var x = k * (thW + 8);
+            var r = caixa(tira, x, 0, thW, thH, { rx: 6, fill: COR.fundo });
+            var d = caber(CAP[n][0], CAP[n][1], thW - 6, thH - 6);
+            imagem(tira, cap(n), x + (thW - d.w) / 2, (thH - d.h) / 2, d.w, d.h).attr('opacity', .75);
+            return r;
+        });
+        var D = 2800, INI = 1400, CIC = 8 * D + 1600;
+        reger(id, function (ms) {
+            sobe(topo, eo(ms, 0, 600)); sobe(cont, eo(ms, 200, 600)); sobe(v.g, eo(ms, 300, 700)); sobe(tira, eo(ms, 600, 700));
+            var u = ms - INI;
+            if (u < 0) { v.imgs.forEach(function (im) { im.attr('opacity', 0); }); escrever(contN.node(), '0'); return; }
+            u = u % CIC;
+            var idx = Math.min(7, Math.floor(u / D)), fim = 1 - eo(u, CIC - 700, 600);
+            v.imgs.forEach(function (im, k) {
+                var ini = k * D, op = eo(u, ini, 450) * (k === 7 ? fim : 1 - eo(u, ini + D - 100, 450));
+                im.attr('opacity', op);
+            });
+            thumbs.forEach(function (r, k) { r.attr('stroke', k === idx ? COR.marca : COR.borda).attr('stroke-width', k === idx ? 2.5 : 1); });
+            escrever(passo.node(), 'captura ' + NUMS[idx]);
+            escrever(leg.node(), LEG[idx]);
+            var n = u < 6 * D ? 0 : Math.round(9 * d3.easeCubicOut(pr(u, 6 * D + 200, 1400)));
+            escrever(contN.node(), String(Math.round(n * (fim > .5 ? 1 : 0))));
+        });
+    }
+
+    /* ==============================================================
+       S18 · A esteira de 8 etapas: o token corre até a revisão humana,
+       espera o carimbo e só então segue, mais apagado, para o que é
+       do pipeline e do time.
+       ============================================================== */
+    function s18(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var E = [['Planejamento', 'Azure Boards'], ['Análise e\nImplementação', 'Claude Code'], ['Controle de\nCódigo', 'Azure Repos (Git)'],
+            ['Revisão\nHumana', 'Azure DevOps'], ['CI/CD e\nSegurança', 'Azure Pipelines'], ['Homologação', 'Staging'],
+            ['Produção', 'Container Apps\nou App Service'], ['Observabilidade', 'Azure Monitor']];
+        var W = 104, G = 8, X0 = 36, Y = T + 30, H = 108;
+        function xi(i) { return X0 + i * (W + G); }
+        var zonas = raiz.append('g');
+        [[0, 2, 'Plugin e Claude Code, com aprovação a cada escrita'], [3, 3, 'Você decide'], [4, 7, 'Pipeline e time: o plugin só prepara IaC e CI/CD']].forEach(function (z, k) {
+            var x1 = xi(z[0]), x2 = xi(z[1]) + W;
+            zonas.append('path').attr('d', 'M' + x1 + ',' + (Y - 6) + ' v-8 H' + x2 + ' v8').attr('fill', 'none')
+                .attr('stroke', k === 1 ? COR.marca : COR.borda).attr('stroke-width', 1.5);
+            texto(zonas, (x1 + x2) / 2, Y - 20, z[2], { anchor: 'middle', size: k === 1 ? 11.5 : 10.5, weight: 700, fill: k === 1 ? COR.marca : COR.suave });
+        });
+        var caixas = E.map(function (e, i) {
+            var g = bloco(raiz, xi(i), Y);
+            var r = caixa(g, 0, 0, W, H, { rx: 10, fill: COR.fundo, stroke: i === 3 ? COR.marca : COR.borda })
+                .attr('stroke-dasharray', i > 3 ? '4 4' : null);
+            texto(g, 12, 24, String(i + 1), { size: 18, weight: 800, fill: i <= 3 ? COR.marca : COR.fraco });
+            texto(g, 12, 48, e[0], { size: 11.5, weight: 700, lh: 14 });
+            texto(g, 12, e[0].indexOf('\n') > 0 ? 82 : 68, e[1], { size: 9.5, fill: COR.suave, lh: 12 });
+            if (i > 3) g.attr('data-fraco', 1);
+            return { g: g, r: r };
+        });
+        var faixaY = Y + H + 22;
+        seta(raiz, xi(0) + 10, faixaY, xi(7) + W - 10, faixaY, { tracejado: true, sw: 2 });
+        var tok = raiz.append('circle').attr('r', 8).attr('cy', faixaY).attr('fill', COR.marca).style('filter', 'drop-shadow(0 0 8px ' + COR.marca + ')');
+        var carimbo = raiz.append('g').attr('opacity', 0).attr('transform', 'translate(' + (xi(3) + W / 2) + ',' + (faixaY + 30) + ')');
+        carimbo.append('rect').attr('x', -64).attr('y', -13).attr('width', 128).attr('height', 26).attr('rx', 13).attr('fill', COR.ok);
+        texto(carimbo, 0, 4.5, 'aprovado por você', { anchor: 'middle', size: 11, weight: 800, fill: COR.fundo });
+        var nao = bloco(raiz, 36, faixaY + 62);
+        texto(nao, 0, 0, 'O QUE A ESTEIRA NÃO FAZ SOZINHA', { size: 10.5, weight: 700, fill: COR.fraco }).attr('letter-spacing', '.14em');
+        var NAO = ['Merge de PR', 'Deploy ou apply de infraestrutura real', 'Criar ou atualizar work items sem aprovação',
+            'Decidir regra de negócio ambígua', 'Usar tags de imagem mutáveis (latest)', 'Gravar credenciais em arquivo'];
+        var itens = NAO.map(function (s, k) {
+            var g = bloco(nao, (k % 3) * 300, 14 + Math.floor(k / 3) * 42);
+            caixa(g, 0, 0, 288, 34, { rx: 8 });
+            texto(g, 14, 22, '✕', { size: 13, weight: 800, fill: COR.marca });
+            texto(g, 34, 21.5, s, { size: 11.5, fill: COR.suave });
+            return g;
+        });
+        texto(nao, 0, 118, 'Cada uma dessas ações exige um pedido explícito seu, feito à parte.', { size: 11, fill: COR.fraco, italic: true });
+        var X = function (i) { return xi(i) + W / 2; };
+        var INI = 2400, CIC = 13000;
+        reger(id, function (ms) {
+            zonas.attr('opacity', eo(ms, 1200, 700));
+            caixas.forEach(function (c, i) { sobe(c.g, eo(ms, 100 + i * 120, 600) * (i > 3 ? .7 : 1), 12); });
+            sobe(nao, eo(ms, 1400, 700));
+            itens.forEach(function (g, k) { sobe(g, eo(ms, 1600 + k * 150, 500), 8); });
+            var u = ms - INI;
+            if (u < 0) { tok.attr('opacity', 0); carimbo.attr('opacity', 0); return; }
+            u = u % CIC;
+            var fim = 1 - eo(u, CIC - 900, 600), x;
+            if (u < 3600) x = lerp(X(0), X(3), es(u, 0, 3600));
+            else if (u < 6200) x = X(3);
+            else x = lerp(X(3), X(7), es(u, 6200, 4400));
+            var antecipa = u > 3600 && u < 4000 ? Math.sin(pr(u, 3600, 400) * Math.PI) * -3 : 0;
+            tok.attr('cx', x + antecipa).attr('opacity', Math.min(1, u / 300) * fim * (u > 6200 ? .55 : 1));
+            carimbo.attr('opacity', eo(u, 4500, 500) * fim);
+            caixas.forEach(function (c, i) {
+                var aqui = Math.abs(x - X(i)) < W / 2;
+                c.r.attr('fill', aqui ? COR.brilhoSuave : COR.fundo);
+            });
+        });
+    }
+
+    /* ==============================================================
+       S19 · Resumo: os seis movimentos ganham o check em sequência.
+       ============================================================== */
+    function s19(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var I = [['Reusar o Atlas', 'Audite com /atlas-audit antes\nde padronizar um módulo'],
+            ['Preparar o ambiente', 'Node.js, Azure CLI e jq;\naz login e /mcp conectado'],
+            ['Escolher o comando', 'ship-feature para projeto novo,\nevolve-feature para existente'],
+            ['Responder ao /clarify', 'Respostas curtas viram\nrequisitos EARS definitivos'],
+            ['Confiar nos hooks', 'Segredos aparentes e testes\nfalhando são bloqueados'],
+            ['Aprovar cada escrita', 'Work items, PRs, merge e deploy\npassam por você']];
+        var cw = 284, chh = (F.H - 30 - T - 16) / 2;
+        var cards = I.map(function (it, k) {
+            var g = bloco(raiz, 40 + (k % 3) * (cw + 14), T + Math.floor(k / 3) * (chh + 16));
+            var r = caixa(g, 0, 0, cw, chh, { rx: 14 });
+            var n = texto(g, 22, 52, String(k + 1), { size: 40, weight: 800, fill: COR.fraco });
+            texto(g, 22, 94, it[0], { size: 17, weight: 800 });
+            texto(g, 22, 118, it[1], { size: 12, fill: COR.suave, lh: 16 });
+            var ok = marcaOk(g, cw - 30, 30, 13).attr('opacity', 0);
+            return { g: g, r: r, n: n, ok: ok };
+        });
+        var INI = 1800, PASSO = 1500, CIC = 6 * PASSO + 2600;
+        reger(id, function (ms) {
+            cards.forEach(function (c, k) { sobe(c.g, eo(ms, 100 + k * 150, 700), 16); });
+            var u = ms - INI;
+            if (u < 0) { cards.forEach(function (c) { c.ok.attr('opacity', 0); }); return; }
+            u = u % CIC;
+            var fim = 1 - eo(u, CIC - 900, 600);
+            cards.forEach(function (c, k) {
+                var marcado = eo(u, k * PASSO + 400, 400) * fim;
+                var atual = u >= k * PASSO && u < (k + 1) * PASSO;
+                c.ok.attr('opacity', marcado);
+                c.n.attr('fill', marcado > .5 ? COR.marca : COR.fraco);
+                c.r.attr('stroke', atual ? COR.marca : COR.borda).attr('fill', atual ? COR.brilhoSuave : COR.card);
+            });
+        });
+    }
+
+    /* ==============================================================
+       S20 · Encerramento: o comando real do guia é digitado e, em
+       seguida, o que acontece com ele aparece passo a passo.
+       ============================================================== */
+    function s20(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, T = F.topo, raiz = svg.append('g');
+        var CMD = '/mogai-devops-pipeline:evolve-feature "Adicionar filtro por período (data inicial/final) na listagem de changelogs" "LogSolutions-web"';
+        var tm = bloco(raiz, 60, T + 4);
+        var d = fo(tm, 0, 0, 840, 92, '<div class="term"><div class="term-bar"><i></i><i></i><i></i><span>Claude Code · exemplo 1 do guia</span></div><div class="term-body" style="font-size:15px"><div class="tl"><span class="tp">❯ </span><span class="tx"></span><span class="cur"></span></div></div></div>');
+        var tx = d.select('.tx').node(), cur = d.select('.cur').node();
+        var PASSOS = [['codebase-discovery', 'mapeia as telas de listagem e registra a linha de base de testes'],
+            ['requirements-analyst', 'escreve a história e deixa as pendências'],
+            ['/clarify', 'pergunta; você responde "Inclusivo; padrão últimos 30 dias."'],
+            ['spec-writer', 'parâmetros opcionais dataInicio e dataFim, sem breaking change'],
+            ['test-runner', 'roda a suíte completa e confirma que não houve regressão'],
+            ['você', 'recebe o resumo e decide sobre commit, PR e deploy']];
+        var lista = PASSOS.map(function (ps, k) {
+            var g = bloco(raiz, 60 + (k % 2) * 424, T + 116 + Math.floor(k / 2) * 66);
+            var r = caixa(g, 0, 0, 416, 56, { rx: 10 });
+            texto(g, 14, 22, (k + 1) + '. ' + ps[0], { size: 12.5, weight: 700, mono: k < 5, fill: k === 5 ? COR.marca : COR.tinta });
+            texto(g, 14, 41, ps[1], { size: 11, fill: COR.suave });
+            return { g: g, r: r };
+        });
+        var rod = bloco(raiz, 480, Math.min(F.H - 22, T + 334 + 24));
+        texto(rod, 0, 0, 'Exemplo ilustrativo do guia · documentação do plugin em\n~/.claude/plugins/cache/mogai-devops-pipeline/mogai-devops-pipeline/1.5.0/', { anchor: 'middle', size: 11, fill: COR.fraco, lh: 16 });
+        var DIG = 500, CPS = 34, FIM = DIG + CMD.length / CPS * 1000, PASSO = 1600, CIC = 6 * PASSO + 2400;
+        reger(id, function (ms) {
+            sobe(tm, eo(ms, 0, 600));
+            escrever(tx, CMD.slice(0, Math.floor(cl((ms - DIG) / 1000 * CPS, 0, CMD.length))));
+            cur.className = 'cur' + (piscar(ms) ? '' : ' off');
+            sobe(rod, eo(ms, FIM, 700));
+            var u = ms - FIM - 300;
+            lista.forEach(function (l, k) {
+                if (u < 0) { l.g.attr('opacity', 0); return; }
+                var uu = u % CIC, primeira = u < CIC;
+                var k1 = primeira ? eo(uu, k * PASSO, 600) : 1;
+                sobe(l.g, k1, 12);
+                var atual = uu >= k * PASSO && uu < (k + 1) * PASSO;
+                l.r.attr('stroke', atual ? COR.marca : COR.borda).attr('fill', atual ? COR.brilhoSuave : COR.card);
+            });
+        });
+    }
+
+    function ligar() {
+        [s01, s02, s03, s04, s05, s06, s08, s09, s11, s12, s13, s17, s18, s19, s20]
+            .forEach(function (f) {
+                var id = f.name;
+                try { f(id); } catch (e) { if (window.console) console.error('[deck] ' + id, e); }
+            });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ligar);
+    else ligar();
+})();
+</script>
+
+
+<script>
+/* ==============================================================
+   Navegação slide a slide: setas, PageUp/Down e espaço.
+
+   As guardas importam: durante a EDIÇÃO (tecla E) e a PINTURA
+   (tecla P) o teclado pertence a esses modos. Sem isso, arrastar
+   um elemento com a seta trocaria de slide no meio da edição.
+   ============================================================== */
+(function () {
+    'use strict';
+    var secs = Array.prototype.slice.call(document.querySelectorAll('body > section'));
+    function atual() {
+        var meio = window.innerHeight / 2, achado = 0;
+        secs.forEach(function (s, i) {
+            var r = s.getBoundingClientRect();
+            if (r.top <= meio && r.bottom > meio) achado = i;
+        });
+        return achado;
+    }
+    function ir(d) {
+        var de = atual(), i = Math.max(0, Math.min(secs.length - 1, de + d));
+        if (i === de) return;
+        secs[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    document.addEventListener('keydown', function (e) {
+        if (document.body.classList.contains('me-on') || document.body.classList.contains('md-on')) return;
+        var t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (['ArrowDown', 'ArrowRight', 'PageDown', ' ', 'Spacebar'].indexOf(e.key) !== -1) { e.preventDefault(); ir(1); }
+        else if (['ArrowUp', 'ArrowLeft', 'PageUp'].indexOf(e.key) !== -1) { e.preventDefault(); ir(-1); }
+    });
+
+    /* ---------- desenho (tecla P) pertence AO SLIDE ----------
+       O mira-draw pinta num <canvas> único, fixo sobre a janela: sem
+       isto, o traço feito num slide fica pairando sobre todos os outros,
+       como se você tivesse riscado a tela e não o slide.
+
+       Aqui os traços são guardados por slide e trocados junto com ele:
+       sai do slide, o desenho sai; volta, o desenho volta. Usa a API
+       pública `getShapes`/`setShapes` do mira-draw, sem tocar no módulo.
+
+       No palco do mira-remote o desenho é da shell (modelo global
+       sincronizado com o celular), então lá isto não se mete. */
+    var porSlide = {}, ultimo = -1;
+    function trocarDesenho() {
+        if (window.__MIRA_REMOTE_STAGE__) return;
+        var md = window.miraDraw;
+        if (!md || !md.getShapes || !md.setShapes) return;   // deck sem a caneta
+        var i = atual();
+        if (i === ultimo) return;
+        if (ultimo >= 0) porSlide[ultimo] = md.getShapes();  // guarda o que estava
+        ultimo = i;
+        md.setShapes(porSlide[i] || []);
+    }
+    window.addEventListener('load', function () { ultimo = atual(); });
+    window.addEventListener('scroll', trocarDesenho, { passive: true });
+})();
+</script>
+
+<script>
+/* ==============================================================
+   INTRODUÇÃO AO ATLAS (2026-10-27): capa + 6 slides, ids a00..a06.
+
+   Bloco separado de propósito: o <script> de animações original do
+   deck fica byte a byte igual. As utilidades abaixo são cópia das
+   dele (mesmo regente, mesmo palco), para os slides novos se
+   comportarem igual aos antigos: congelados fora da tela, do zero
+   ao entrar, loop interno depois da entrada.
+
+   Conteúdo: references/ATLAS.md. O slide dos agentes usa também a
+   tabela §4 do references/GUIA-MOGAI-DEVOPS-PIPELINE.md.
+   ============================================================== */
+(function () {
+    'use strict';
+
+    function cor(nome, reserva) {
+        var v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+        return v || reserva;
+    }
+    var COR = {
+        marca: cor('--mira-primary', '#4DA3FF'),
+        acento: cor('--mira-accent-2', '#6EE7F0'),
+        tinta: cor('--mira-text', '#ffffff'),
+        suave: cor('--mira-text-soft', 'rgba(255,255,255,.72)'),
+        fraco: cor('--mira-text-softer', 'rgba(255,255,255,.5)'),
+        card: cor('--mira-card-bg', 'rgba(255,255,255,.05)'),
+        borda: cor('--mira-card-border', 'rgba(255,255,255,.1)'),
+        ok: cor('--mira-crop', '#35D07F'),
+        fundo: cor('--mira-bg', '#0A1220'),
+        brilho: cor('--mira-glow-strong', 'rgba(77,163,255,.25)'),
+        brilhoSuave: cor('--mira-glow-soft', 'rgba(77,163,255,.15)')
+    };
+    var MONO = "ui-monospace,'Cascadia Code','JetBrains Mono',Consolas,'Courier New',monospace";
+
+    /* ---------- regente e palco: os mesmos do deck ---------- */
+    function reger(svgId, quadro) {
+        var svg = document.getElementById(svgId);
+        var slide = svg && svg.closest('section');
+        if (!slide || typeof IntersectionObserver !== 'function') {
+            d3.timer(function (ms) { quadro(ms); });
+            return;
+        }
+        var relogio = null, visivel = false, pintouZero = false;
+        d3.timer(function (ms) {
+            if (!visivel) {
+                if (!pintouZero) { quadro(0); pintouZero = true; }
+                return;
+            }
+            pintouZero = false;
+            if (relogio === null) relogio = ms;
+            quadro(ms - relogio);
+        });
+        new IntersectionObserver(function (entradas) {
+            entradas.forEach(function (e) {
+                if (e.isIntersecting === visivel) return;
+                visivel = e.isIntersecting;
+                relogio = null;
+            });
+        }, { threshold: 0.6 }).observe(slide);
+    }
+    function palco(svgId) {
+        var svg = d3.select('#' + svgId);
+        if (svg.empty()) return null;
+        var caixa = svg.node().closest('.anim-stage');
+        var secao = caixa && caixa.closest ? caixa.closest('section') : null;
+        var titulo = secao && secao.querySelector
+            ? secao.querySelector('.slide-main .titulo, .slide-main h2, .slide-main h1')
+            : null;
+        var RESPIRO = 16;
+        var F = { W: 960, H: 540, topo: 0, alturaUtil: 540 };
+        F.vy = function (k) { return F.topo + F.alturaUtil * k; };
+        function casar() {
+            var r = caixa.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) F.H = Math.round(F.W * r.height / r.width);
+            svg.attr('viewBox', '0 0 ' + F.W + ' ' + F.H);
+            F.topo = 0;
+            if (titulo && titulo.getBoundingClientRect && r.height > 0) {
+                var t = titulo.getBoundingClientRect();
+                var basePx = Math.max(0, (t.bottom || 0) - (r.top || 0));
+                F.topo = Math.round(F.H * basePx / r.height) + RESPIRO;
+                F.topo = Math.min(F.topo, Math.round(F.H * 0.30));
+            }
+            F.alturaUtil = F.H - F.topo;
+        }
+        casar();
+        window.addEventListener('resize', casar);
+        svg.selectAll('*').remove();
+        return { svg: svg, F: F };
+    }
+    /* y onde começa uma composição de altura `alt`, centrada na faixa livre */
+    function inicio(F, alt) { return F.topo + Math.max(0, (F.alturaUtil - alt - 28) / 2); }
+
+    /* ---------- utilidades de tempo e desenho (cópia das do deck) ---------- */
+    function cl(v, a, b) { return v < a ? a : v > b ? b : v; }
+    function pr(ms, a, d) { return cl((ms - a) / d, 0, 1); }
+    function eo(ms, a, d) { return d3.easeCubicOut(pr(ms, a, d)); }
+    function es(ms, a, d) { return d3.easeSinInOut(pr(ms, a, d)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function janela(ms, a, b, f) { f = f || 400; return eo(ms, a, f) * (1 - eo(ms, b - f, f)); }
+    function bloco(pai, x, y) {
+        var g = pai.append('g').attr('transform', 'translate(' + x + ',' + y + ')');
+        g.node().__xy = [x, y];
+        return g;
+    }
+    function sobe(g, k, dy) {
+        var p = g.node().__xy;
+        g.attr('opacity', k).attr('transform', 'translate(' + p[0] + ',' + (p[1] + (1 - k) * (dy == null ? 14 : dy)) + ')');
+    }
+    function caixa(g, x, y, w, h, o) {
+        o = o || {};
+        return g.append('rect').attr('x', x).attr('y', y).attr('width', w).attr('height', h)
+            .attr('rx', o.rx == null ? 10 : o.rx).attr('fill', o.fill || COR.card)
+            .attr('stroke', o.stroke || COR.borda).attr('stroke-width', o.sw || 1);
+    }
+    function texto(g, x, y, s, o) {
+        o = o || {};
+        var t = g.append('text').attr('x', x).attr('y', y).attr('fill', o.fill || COR.tinta)
+            .attr('font-size', o.size || 14).attr('font-weight', o.weight || 400)
+            .attr('text-anchor', o.anchor || 'start');
+        if (o.mono) t.attr('font-family', MONO);
+        var linhas = String(s).split('\n');
+        if (linhas.length === 1) t.text(s);
+        else linhas.forEach(function (l, i) {
+            t.append('tspan').attr('x', x).attr('dy', i === 0 ? 0 : (o.lh || (o.size || 14) * 1.3)).text(l);
+        });
+        return t;
+    }
+    function escrever(no, s) { if (no.__s !== s) { no.__s = s; no.textContent = s; } }
+    function seta(g, x1, y1, x2, y2, o) {
+        o = o || {};
+        return g.append('line').attr('x1', x1).attr('y1', y1).attr('x2', x2).attr('y2', y2)
+            .attr('stroke', o.cor || COR.borda).attr('stroke-width', o.sw || 1.5)
+            .attr('stroke-dasharray', o.tracejado ? '4 4' : null);
+    }
+    function marcaOk(g, x, y, r) {
+        var c = g.append('g').attr('transform', 'translate(' + x + ',' + y + ')');
+        c.append('circle').attr('r', r || 7).attr('fill', COR.ok);
+        var s = (r || 7) / 7;
+        c.append('path').attr('d', 'M' + (-3.2 * s) + ',' + (0.2 * s) + ' L' + (-1 * s) + ',' + (2.6 * s) + ' L' + (3.4 * s) + ',' + (-2.4 * s))
+            .attr('fill', 'none').attr('stroke', COR.fundo).attr('stroke-width', 1.8 * s)
+            .attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round');
+        return c;
+    }
+    /* alerta: triângulo cheio com "!" (falha compartilhada) */
+    function marcaAlerta(g, x, y, r) {
+        r = r || 8;
+        var c = g.append('g').attr('transform', 'translate(' + x + ',' + y + ')');
+        c.append('path').attr('d', 'M0,' + (-r) + ' L' + (r * 1.05) + ',' + (r * .8) + ' L' + (-r * 1.05) + ',' + (r * .8) + ' Z')
+            .attr('fill', COR.acento).attr('stroke', COR.acento).attr('stroke-width', 2).attr('stroke-linejoin', 'round');
+        texto(c, 0, r * .62, '!', { anchor: 'middle', size: r * 1.25, weight: 800, fill: COR.fundo });
+        return c;
+    }
+    /* polilinha percorrida por t de 0 a 1 */
+    function trajeto(pts) {
+        var L = [0];
+        for (var i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+        var tot = L[L.length - 1] || 1;
+        return function (t) {
+            var d = cl(t, 0, 1) * tot;
+            for (var j = 1; j < L.length; j++) {
+                if (d <= L[j]) {
+                    var k = (d - L[j - 1]) / ((L[j] - L[j - 1]) || 1);
+                    return [lerp(pts[j - 1][0], pts[j][0], k), lerp(pts[j - 1][1], pts[j][1], k)];
+                }
+            }
+            return pts[pts.length - 1];
+        };
+    }
+    function amostrar(no, n) {
+        var L = no.getTotalLength(), pts = [];
+        for (var i = 0; i <= n; i++) { var q = no.getPointAtLength(L * i / n); pts.push([q.x, q.y]); }
+        return trajeto(pts);
+    }
+    function ponto(g) {
+        return g.append('circle').attr('r', 6).attr('fill', COR.marca).attr('opacity', 0)
+            .style('filter', 'drop-shadow(0 0 8px ' + COR.marca + ')');
+    }
+    /* destaque de uma caixa: k de 0 a 1 */
+    function acender(r, k) {
+        r.attr('stroke', k > .02 ? COR.marca : COR.borda).attr('stroke-opacity', .35 + .65 * k)
+            .attr('stroke-width', 1 + 1.5 * k).attr('fill', k > .05 ? COR.brilhoSuave : COR.card);
+    }
+
+    /* ==============================================================
+       A00 · Capa. A fundação se assenta peça por peça (módulos do SDK
+       e componentes do UI); os sistemas sobem em cima dela. Depois,
+       em loop, uma versão nova corre pela base e cada sistema que
+       está em cima dela se atualiza quando ela passa por baixo.
+       ============================================================== */
+    function a00(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        /* grade de planta ao fundo: ambiente, quase invisível */
+        var grade = raiz.append('g').attr('opacity', 0);
+        for (var gx = 0; gx <= 960; gx += 40) seta(grade, gx, 0, gx, F.H, { sw: .5 });
+        for (var gy = 0; gy <= F.H; gy += 40) seta(grade, 0, gy, 960, gy, { sw: .5 });
+
+        var X0 = 160, X1 = 910, Y_SDK = F.H - 112, Y_UI = Y_SDK + 36, AH = 28;
+        var FILAS = [
+            { nome: 'Atlas .NET SDK', y: Y_SDK, itens: ['Core', 'Data', 'Security.Jwt', 'Logger', 'Audit', 'Cache', 'Queue', 'Message'] },
+            { nome: 'Atlas UI', y: Y_UI, itens: ['at-table', 'at-modal', 'at-date-picker', 'at-file-upload', 'at-sidebar', 'at-header'] }
+        ];
+        var pecas = [];
+        FILAS.forEach(function (fl, f) {
+            var rot = bloco(raiz, X0 - 14, fl.y + 18);
+            texto(rot, 0, 0, fl.nome, { anchor: 'end', size: 11.5, weight: 700, fill: COR.suave });
+            pecas.push({ g: rot, ordem: f * 0.5, rot: true });
+            var n = fl.itens.length, gap = 6, w = (X1 - X0 - (n - 1) * gap) / n;
+            fl.itens.forEach(function (nm, i) {
+                var g = bloco(raiz, X0 + i * (w + gap), fl.y);
+                var r = caixa(g, 0, 0, w, AH, { rx: 6 });
+                texto(g, w / 2, 18.5, nm, { anchor: 'middle', size: 11, weight: 600, mono: true, fill: COR.suave });
+                pecas.push({ g: g, r: r, ordem: f * 4 + i, cx: X0 + i * (w + gap) + w / 2 });
+            });
+        });
+        /* sistemas construídos sobre a base */
+        var SY = Y_SDK - 92, SW = 120, SH = 58;
+        var sistemas = [0, 1, 2, 3].map(function (i) {
+            var x = X0 + 40 + i * ((X1 - X0 - 80 - SW) / 3);
+            var cx = x + SW / 2;
+            var haste = seta(raiz, cx, SY + SH, cx, Y_SDK, { tracejado: true, sw: 1.5 });
+            var g = bloco(raiz, x, SY);
+            var r = caixa(g, 0, 0, SW, SH, { rx: 8 });
+            g.append('line').attr('x1', 0).attr('x2', SW).attr('y1', 14).attr('y2', 14).attr('stroke', COR.borda);
+            [0, 1, 2].forEach(function (k) { g.append('circle').attr('cx', 9 + k * 8).attr('cy', 7).attr('r', 2.2).attr('fill', COR.borda); });
+            var barras = g.selectAll('rect.linha').data([SW - 20, SW - 44, SW - 60]).enter().append('rect').attr('class', 'linha')
+                .attr('x', 10).attr('y', function (d, k) { return 22 + k * 11; }).attr('height', 6).attr('rx', 3)
+                .attr('fill', COR.marca).attr('opacity', .35).attr('width', 0)
+                .each(function (d) { this.__w = d; });
+            return { g: g, r: r, haste: haste, cx: cx, barras: barras };
+        });
+        /* a versão nova que corre pela base */
+        var faixa = raiz.append('rect').attr('y', Y_SDK - 4).attr('height', Y_UI + AH - Y_SDK + 8).attr('width', 70).attr('rx', 8)
+            .attr('fill', COR.brilhoSuave).attr('stroke', COR.marca).attr('stroke-opacity', .7).attr('opacity', 0);
+        var selo = bloco(raiz, 0, Y_SDK - 14);
+        texto(selo, 0, 0, 'nova versão', { anchor: 'middle', size: 10.5, weight: 700, fill: COR.marca });
+
+        var INI = 4800, CIC = 12000, VARRE = 5600;
+        reger(id, function (ms) {
+            grade.attr('opacity', .35 * eo(ms, 0, 1500));
+            pecas.forEach(function (pc) { sobe(pc.g, eo(ms, 200 + pc.ordem * 130, 700), 18); });
+            sistemas.forEach(function (s, i) {
+                sobe(s.g, eo(ms, 2300 + i * 220, 800), 16);
+                s.haste.attr('opacity', .8 * eo(ms, 2600 + i * 220, 600));
+                s.barras.each(function () { this.setAttribute('width', this.__w * eo(ms, 2900 + i * 220, 900)); });
+            });
+            var u = ms - INI;
+            if (u < 0) { faixa.attr('opacity', 0); selo.attr('opacity', 0); return; }
+            u = u % CIC;
+            /* a versão atravessa a base devagar (seno), depois repousa */
+            var k = es(u, 0, VARRE), x = lerp(X0 - 40, X1 + 40, k);
+            var op = janela(u, 0, VARRE + 300, 500);
+            faixa.attr('x', x - 35).attr('opacity', op);
+            selo.attr('transform', 'translate(' + x + ',' + (Y_SDK - 14) + ')').attr('opacity', op);
+            pecas.forEach(function (pc) {
+                if (pc.rot) return;
+                acender(pc.r, cl(1 - Math.abs(pc.cx - x) / 60, 0, 1) * op);
+            });
+            /* cada sistema se atualiza ~350 ms depois que a versão passa sob ele */
+            sistemas.forEach(function (s) {
+                var tPassa = VARRE * xInv((s.cx - (X0 - 40)) / (X1 + 40 - (X0 - 40))) + 350;
+                var kk = janela(u, tPassa, tPassa + 1800, 350);
+                acender(s.r, kk);
+                s.haste.attr('stroke', kk > .05 ? COR.marca : COR.borda);
+                s.barras.each(function (d, j) {
+                    var redesenho = u < tPassa ? 1 : eo(u, tPassa + j * 120, 700);
+                    this.setAttribute('width', this.__w * redesenho);
+                });
+            });
+        });
+        /* inverso do easeSinInOut: quando a varredura passa por uma fração da base */
+        function xInv(f) { f = cl(f, 0, 1); return Math.acos(1 - 2 * f) / Math.PI; }
+    }
+
+    /* ==============================================================
+       A01 · O que é o Atlas, explicado direto: a definição em uma
+       frase e as duas partes (servidor e telas) com o que cada uma
+       já traz pronto. Em loop, cada peça pronta acende e recebe o
+       selo de "pronto", uma por vez, alternando entre as duas partes.
+       ============================================================== */
+    function icone(g, d, x, y, tam, corPreench) {
+        return g.append('path').attr('d', d).attr('fill', corPreench || COR.marca)
+            .attr('transform', 'translate(' + (x - tam / 2) + ',' + (y - tam / 2) + ') scale(' + (tam / 24) + ')');
+    }
+    function a01(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var y0 = inicio(F, 384);
+
+        /* a definição */
+        var def = bloco(raiz, 0, y0);
+        var d = def.append('foreignObject').attr('x', 70).attr('y', 0).attr('width', 820).attr('height', 84)
+            .append('xhtml:div').attr('class', 'fo');
+        d.html('<p style="text-align:center;font-size:19px;line-height:1.45;color:var(--mira-text)">O Atlas é a <b style="color:var(--mira-primary)">plataforma base</b> da empresa: um conjunto de <b style="color:var(--mira-primary)">peças prontas</b> que todos os nossos sistemas usam, para que nenhum projeto precise construir o básico do zero.</p>');
+
+        /* as duas partes */
+        var PARTES = [
+            { nome: 'Atlas .NET SDK', papel: 'a parte que roda no servidor', pecas: ['Login e permissões', 'Acesso ao banco de dados', 'Registro de log e auditoria', 'Vários clientes, dados separados', 'E-mail, filas e cache'] },
+            { nome: 'Atlas UI', papel: 'as telas que o usuário vê', pecas: ['Tabelas e listas', 'Formulários', 'Menus e navegação', 'Janelas e avisos', 'A mesma identidade visual'] }
+        ];
+        var CW = 400, CG = 40, CX0 = (960 - 2 * CW - CG) / 2, CY = y0 + 100, CH = 236;
+        var pecas = [];
+        PARTES.forEach(function (pt, j) {
+            var x = CX0 + j * (CW + CG);
+            var g = bloco(raiz, x, CY);
+            caixa(g, 0, 0, CW, CH, { rx: 14, stroke: COR.marca }).attr('stroke-opacity', .35);
+            texto(g, 22, 34, pt.nome, { size: 20, weight: 800 });
+            texto(g, 22, 56, pt.papel, { size: 13, fill: COR.marca, weight: 600 });
+            pt.pecas.forEach(function (nm, i) {
+                var pg = g.append('g').attr('transform', 'translate(22,' + (72 + i * 31) + ')');
+                var r = caixa(pg, 0, 0, CW - 44, 26, { rx: 7 });
+                texto(pg, 14, 17.5, nm, { size: 12.5, weight: 600, fill: COR.suave });
+                var ok = marcaOk(pg, CW - 44 - 16, 13, 7).attr('opacity', .25);
+                pecas.push({ g: pg, r: r, ok: ok, j: j, i: i, ordem: j * 0.6 + i });
+            });
+            pt.g = g;
+        });
+
+        var rod = bloco(raiz, 480, CY + CH + 32);
+        texto(rod, 0, 0, 'Cada sistema instala só as peças de que precisa e recebe as melhorias com uma atualização de versão', { anchor: 'middle', size: 13, fill: COR.suave });
+
+        /* ordem do loop: alterna servidor e telas, uma peça por vez */
+        var SEQ = [];
+        for (var i = 0; i < 5; i++) { SEQ.push(i); SEQ.push(5 + i); }
+        var INI = 2600, PASSO = 1100, CIC = SEQ.length * PASSO + 1800;
+        reger(id, function (ms) {
+            sobe(def, eo(ms, 0, 800), 12);
+            PARTES.forEach(function (pt, j) { sobe(pt.g, eo(ms, 600 + j * 250, 800), 16); });
+            pecas.forEach(function (pc) { pc.g.attr('opacity', eo(ms, 1100 + pc.ordem * 150, 500)); });
+            sobe(rod, eo(ms, 2000, 700));
+            var u = ms - INI;
+            pecas.forEach(function (pc, k) {
+                if (u < 0) { acender(pc.r, 0); pc.ok.attr('opacity', .25); return; }
+                var uu = u % CIC, pos = SEQ.indexOf(k), t0 = pos * PASSO;
+                /* acende ao chegar a vez; o selo fica cheio até o fim do ciclo */
+                acender(pc.r, janela(uu, t0, t0 + PASSO + 200, 300));
+                var cheio = eo(uu, t0 + 300, 400) * (1 - eo(uu, CIC - 900, 600));
+                pc.ok.attr('opacity', .25 + .75 * cheio);
+            });
+        });
+    }
+
+    /* ==============================================================
+       A02 · Por que existe: à esquerda, três projetos constroem as
+       mesmas seis peças, cada um do seu jeito (18 construções). À
+       direita, o Atlas constrói as seis uma vez e os três projetos
+       passam a usá-las. O ciclo desmonta tudo e recomeça.
+       ============================================================== */
+    function a02(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var y0 = inicio(F, 390);
+        var PECAS = ['Autenticação', 'Acesso a dados', 'Log', 'Auditoria', 'Multi-tenant', 'Telas'];
+        var BH = 30, PASSO_Y = 37, TOPO = y0 + 66;
+
+        /* painéis */
+        var esq = bloco(raiz, 24, y0), dir = bloco(raiz, 492, y0);
+        caixa(esq, 0, 0, 444, 336, { rx: 14 });
+        caixa(dir, 0, 0, 444, 336, { rx: 14, stroke: COR.marca }).attr('stroke-opacity', .35);
+        texto(esq, 20, 30, 'Sem uma base comum', { size: 16, weight: 800 });
+        texto(dir, 20, 30, 'Com o Atlas', { size: 16, weight: 800, fill: COR.marca });
+        var contE = texto(esq, 424, 30, '', { anchor: 'end', size: 12, weight: 600, fill: COR.suave });
+        var contD = texto(dir, 424, 30, '', { anchor: 'end', size: 12, weight: 600, fill: COR.suave });
+
+        /* esquerda: 3 projetos, cada peça com um "sotaque" diferente */
+        var SOTAQUE = [{ dx: -3, rot: -2.2, dash: null }, { dx: 4, rot: 1.6, dash: '6 3' }, { dx: -1, rot: -1, dash: '2 3' }];
+        var feitas = [];
+        ['Projeto A', 'Projeto B', 'Projeto C'].forEach(function (nm, j) {
+            var x = 44 + j * 140;
+            texto(raiz, x + 62, y0 + 54, nm, { anchor: 'middle', size: 12, weight: 700, fill: COR.suave });
+            PECAS.forEach(function (pc, i) {
+                var s = SOTAQUE[(i + j) % 3];
+                var g = raiz.append('g');
+                g.node().__xy = [x + s.dx, TOPO + i * PASSO_Y];
+                var ig = g.append('g').attr('transform', 'rotate(' + s.rot + ',62,' + BH / 2 + ')');
+                caixa(ig, 0, 0, 124, BH, { rx: 6 }).attr('stroke-dasharray', s.dash).attr('stroke', COR.fraco);
+                texto(ig, 62, 19.5, pc, { anchor: 'middle', size: 11.5, weight: 600, fill: COR.suave });
+                feitas.push({ g: g, t: 300 + i * 480 + j * 130 });
+            });
+        });
+
+        /* direita: uma pilha só, e os projetos ligados a ela */
+        var PX = 512, pilha = PECAS.map(function (pc, i) {
+            var g = bloco(raiz, PX, TOPO + i * PASSO_Y);
+            var r = caixa(g, 0, 0, 180, BH, { rx: 6, stroke: COR.marca });
+            texto(g, 90, 19.5, pc, { anchor: 'middle', size: 11.5, weight: 700 });
+            return { g: g, r: r, t: 4300 + i * 230 };
+        });
+        var rotPilha = bloco(raiz, PX + 90, y0 + 54);
+        texto(rotPilha, 0, 0, 'Atlas .NET SDK + Atlas UI', { anchor: 'middle', size: 12, weight: 700, fill: COR.marca });
+        var consumidores = ['Projeto A', 'Projeto B', 'Projeto C'].map(function (nm, j) {
+            var cy = TOPO + 22 + j * 76;
+            var cam = raiz.append('path')
+                .attr('d', 'M' + (PX + 180) + ',' + (TOPO + 2.5 * PASSO_Y + BH / 2) + ' C' + (PX + 230) + ',' + (TOPO + 2.5 * PASSO_Y + BH / 2) + ' ' + (PX + 230) + ',' + cy + ' ' + (PX + 268) + ',' + cy)
+                .attr('fill', 'none').attr('stroke', COR.marca).attr('stroke-width', 1.5).attr('stroke-dasharray', '5 5');
+            var g = bloco(raiz, PX + 268, cy - 24);
+            var r = caixa(g, 0, 0, 136, 48, { rx: 8 });
+            texto(g, 68, 21, nm, { anchor: 'middle', size: 12.5, weight: 700 });
+            texto(g, 68, 37, 'usa a versão publicada', { anchor: 'middle', size: 10, fill: COR.fraco });
+            return { cam: cam, g: g, r: r, t: 6000 + j * 300 };
+        });
+        var rod = bloco(raiz, 480, y0 + 368);
+        texto(rod, 0, 0, 'Resultado: mesma arquitetura, mesmo vocabulário e mesma identidade visual em todos os sistemas', { anchor: 'middle', size: 13, fill: COR.fraco });
+
+        var CIC = 15000, SAI = 12600;
+        reger(id, function (ms) {
+            sobe(esq, eo(ms, 0, 700), 12); sobe(dir, eo(ms, 150, 700), 12);
+            sobe(rod, eo(ms, 600, 800));
+            var u = ms % CIC, fora = 1 - eo(u, SAI, 900);
+            var nE = 0, nD = 0;
+            feitas.forEach(function (f) { var k = eo(u, f.t, 420) * fora; sobe(f.g, k, -16); if (u >= f.t) nE++; });
+            escrever(contE.node(), nE + ' construções');
+            pilha.forEach(function (pc) { var k = eo(u, pc.t, 500) * fora; sobe(pc.g, k, -16); if (u >= pc.t) nD++; });
+            rotPilha.attr('opacity', eo(u, 4100, 500) * fora);
+            escrever(contD.node(), nD ? nD + ' construções' : '');
+            consumidores.forEach(function (c) {
+                var k = eo(u, c.t, 600) * fora;
+                sobe(c.g, k, 10);
+                c.cam.attr('opacity', k * .8).attr('stroke-dashoffset', -(ms / 60) % 10);
+                acender(c.r, janela(u, c.t + 300, c.t + 1600, 300));
+            });
+        });
+    }
+
+    /* ==============================================================
+       A03 · Empresa: um bug aparece no Atlas e, por ser código
+       compartilhado, em todos os sistemas. A correção sai uma vez,
+       a versão sobe e a onda desce até cada sistema. Os cards à
+       direita acendem no ritmo da história.
+       ============================================================== */
+    function a03(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var y0 = inicio(F, 380);
+        var AX = 165, AW = 200, AY = y0 + 6, AH = 74, SY = y0 + 250;
+
+        var at = bloco(raiz, AX, AY);
+        var atR = caixa(at, 0, 0, AW, AH, { rx: 14, stroke: COR.marca }).attr('stroke-opacity', .5);
+        texto(at, 20, 32, 'Atlas', { size: 22, weight: 800 });
+        var ver = texto(at, 20, 56, '', { size: 12, mono: true, fill: COR.acento });
+        var atOk = marcaOk(at, AW - 26, 37, 10), atAl = marcaAlerta(at, AW - 26, 37, 11);
+        var nota = texto(raiz, AX + AW + 16, AY + AH / 2 + 4, '', { size: 12.5, weight: 700, fill: COR.suave });
+
+        var sis = [0, 1, 2, 3].map(function (i) {
+            var x = 40 + i * 110, cx = x + 50;
+            var cam = raiz.append('path')
+                .attr('d', 'M' + (AX + AW / 2) + ',' + (AY + AH) + ' C' + (AX + AW / 2) + ',' + (AY + AH + 90) + ' ' + cx + ',' + (SY - 90) + ' ' + cx + ',' + SY)
+                .attr('fill', 'none').attr('stroke', COR.borda).attr('stroke-width', 1.5).attr('stroke-dasharray', '4 4');
+            var g = bloco(raiz, x, SY);
+            var r = caixa(g, 0, 0, 100, 70, { rx: 10 });
+            texto(g, 50, 26, 'Sistema ' + 'ABCD'[i], { anchor: 'middle', size: 12.5, weight: 700 });
+            var ok = marcaOk(g, 50, 48, 9), al = marcaAlerta(g, 50, 48, 10);
+            return { g: g, r: r, ok: ok, al: al, cam: cam, ir: amostrar(cam.node(), 40), tok: ponto(raiz) };
+        });
+        var leg = bloco(raiz, 260, y0 + 362);
+        texto(leg, 0, 0, 'Ilustração: sistemas que consomem a mesma versão do Atlas', { anchor: 'middle', size: 11.5, fill: COR.fraco });
+
+        var CARDS = [
+            ['Padronização', 'Todos os sistemas seguem a mesma arquitetura e a mesma identidade visual.'],
+            ['Correção uma vez, benefício em todos', 'Bug ou falha de segurança corrigido no Atlas chega a todos com uma atualização de versão.'],
+            ['Conhecimento centralizado', 'Multi-tenant, JWT, licenciamento e auditoria: decididos, documentados e testados em um só lugar.'],
+            ['Governança de versões', 'Pacotes em versão única (lockstep) evitam combinações incompatíveis; o pipeline publica sem passo manual.']
+        ];
+        var cards = CARDS.map(function (c, i) {
+            var g = bloco(raiz, 530, y0 + i * 94);
+            var r = caixa(g, 0, 0, 400, 84, { rx: 12 });
+            texto(g, 18, 28, c[0], { size: 15, weight: 800, fill: COR.marca });
+            var f = g.append('foreignObject').attr('x', 18).attr('y', 38).attr('width', 368).attr('height', 42);
+            f.append('xhtml:div').attr('class', 'fo').html('<p style="font-size:12.5px;color:var(--mira-text-soft);line-height:1.35">' + c[1] + '</p>');
+            return { g: g, r: r };
+        });
+
+        var INI = 1800, CIC = 14000, BUG = 600, FIX = 3600, ONDA = 4300;
+        reger(id, function (ms) {
+            sobe(at, eo(ms, 0, 700), 14);
+            sis.forEach(function (s, i) { sobe(s.g, eo(ms, 300 + i * 150, 700), 14); s.cam.attr('opacity', eo(ms, 700 + i * 150, 600)); });
+            sobe(leg, eo(ms, 1200, 700));
+            cards.forEach(function (c, i) { sobe(c.g, eo(ms, 500 + i * 220, 700), 14); });
+            var u = ms - INI;
+            var quebrado = u >= 0 ? (u % CIC) : -1;
+            u = quebrado;
+            /* estado de cada marcador: 0 = ok, 1 = alerta */
+            var atAlerta = u >= BUG && u < FIX ? 1 : 0;
+            atAl.attr('opacity', atAlerta ? eo(u, BUG, 300) : 0);
+            atOk.attr('opacity', u < 0 || u < BUG ? 1 : u >= FIX ? eo(u, FIX, 400) : 0);
+            acender(atR, u < 0 ? 0 : janela(u, BUG, BUG + 1100, 300) + janela(u, FIX - 200, ONDA + 600, 300));
+            escrever(ver.node(), u >= FIX + 200 ? 'versão N+1' : 'versão N');
+            ver.attr('opacity', u >= FIX ? .4 + .6 * eo(u, FIX + 200, 500) : 1);
+            escrever(nota.node(), u >= BUG && u < FIX ? 'bug encontrado' : u >= FIX && u < ONDA + 2600 ? 'corrigido uma vez' : '');
+            nota.attr('opacity', u < 0 ? 0 : janela(u, BUG, FIX, 300) + janela(u, FIX, ONDA + 2600, 300));
+            sis.forEach(function (s, i) {
+                var tAl = BUG + 450 + i * 250, tChega = ONDA + i * 320 + 1300;
+                var emAlerta = u >= tAl && u < tChega;
+                s.al.attr('opacity', emAlerta ? eo(u, tAl, 300) : 0);
+                s.ok.attr('opacity', u < 0 || u < tAl ? 1 : u >= tChega ? eo(u, tChega, 400) : 0);
+                s.cam.attr('stroke', emAlerta && u >= ONDA ? COR.marca : COR.borda);
+                var kt = es(u, ONDA + i * 320, 1300);
+                var q = s.ir(kt);
+                s.tok.attr('cx', q[0]).attr('cy', q[1]).attr('opacity', u < 0 ? 0 : janela(u, ONDA + i * 320, tChega + 100, 200));
+                acender(s.r, u < 0 ? 0 : janela(u, tChega, tChega + 1200, 300));
+            });
+            /* cards: o 2 acompanha a correção; 1, 3 e 4 se revezam no repouso da cena */
+            var foco = u < 0 ? -1 : u < ONDA + 2600 ? (u >= BUG ? 1 : -1) : u < ONDA + 4600 ? 0 : u < ONDA + 6600 ? 2 : u < ONDA + 8600 ? 3 : -1;
+            cards.forEach(function (c, i) { acender(c.r, i === foco ? 1 : 0); });
+        });
+    }
+
+    /* ==============================================================
+       A04 · Time: a mesma entrega em duas barras de esforço. Na de
+       baixo, as cinco peças de infraestrutura se comprimem numa só
+       ("Atlas") e a regra de negócio se expande no espaço liberado.
+       ============================================================== */
+    function a04(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var y0 = inicio(F, 390);
+        var BX = 190, BW = 730, BH = 46;
+        var SEG = [
+            ['Autenticação', .12], ['Dados', .09], ['Log e auditoria', .13], ['Multi-tenant', .11], ['Telas', .11], ['Regra de negócio', .44]
+        ];
+        var ATLAS = .14;
+
+        function barra(y, rotulo, sub) {
+            var g = bloco(raiz, 0, y);
+            texto(g, 40, 21, rotulo, { size: 14, weight: 800 });
+            texto(g, 40, 39, sub, { size: 11, fill: COR.fraco });
+            var segs = SEG.map(function (s, i) {
+                var sg = g.append('g');
+                var negocio = i === SEG.length - 1;
+                var r = sg.append('rect').attr('y', 0).attr('height', BH).attr('rx', 6)
+                    .attr('fill', negocio ? COR.marca : COR.card).attr('fill-opacity', negocio ? .85 : 1)
+                    .attr('stroke', negocio ? COR.marca : COR.borda);
+                var t = texto(sg, 0, BH / 2 + 4, s[0], { anchor: 'middle', size: 10.5, weight: 700, fill: negocio ? COR.fundo : COR.suave });
+                return { r: r, t: t, w: s[1] };
+            });
+            return { g: g, segs: segs };
+        }
+        function por(b, ws, kCresce) {
+            var x = BX;
+            b.segs.forEach(function (s, i) {
+                var w = Math.max(0, BW * ws[i] - 4) * (kCresce ? kCresce[i] : 1);
+                s.r.attr('x', x).attr('width', w);
+                s.t.attr('x', x + w / 2).attr('opacity', w > s.t.node().getComputedTextLength() + 6 ? (b.rotOp == null ? 1 : b.rotOp) : 0);
+                x += BW * ws[i];
+            });
+        }
+        var b1 = barra(y0 + 10, 'Sem base comum', 'cada projeto constrói'), b2 = barra(y0 + 92, 'Com o Atlas', 'peças prontas, versionadas');
+        var blocoAtlas = b2.g.append('rect').attr('x', BX).attr('y', 0).attr('width', BW * ATLAS - 4).attr('height', BH).attr('rx', 6)
+            .attr('fill', COR.fundo).attr('stroke', COR.marca).attr('stroke-width', 1.5).attr('opacity', 0);
+        var rotAtlas = texto(b2.g, BX + BW * ATLAS / 2, BH / 2 + 4.5, 'Atlas', { anchor: 'middle', size: 13, weight: 800, fill: COR.marca }).attr('opacity', 0);
+        var nota = bloco(raiz, BX, y0 + 168);
+        texto(nota, 0, 0, 'Proporções ilustrativas, sem medição: o ponto é para onde o tempo do time vai.', { size: 11, fill: COR.fraco });
+
+        var CARDS = [
+            ['Mesmo vocabulário', 'Result<T>, Entity e Specification em qualquer projeto do Atlas.'],
+            ['Formulários integrados', 'Componentes at-* funcionam com formControlName, [formControl] e [(ngModel)].'],
+            ['Um código, três bancos', 'SQL Server, PostgreSQL e Oracle com a mesma API.'],
+            ['Ver antes de usar', 'Storybook e documentação pensada também para IA, com o atlas-mcp.']
+        ];
+        var cards = CARDS.map(function (c, i) {
+            var g = bloco(raiz, 40 + i * 223, y0 + 196);
+            var r = caixa(g, 0, 0, 211, 136, { rx: 12 });
+            texto(g, 16, 28, c[0], { size: 14.5, weight: 800, fill: COR.marca });
+            var f = g.append('foreignObject').attr('x', 16).attr('y', 40).attr('width', 182).attr('height', 90);
+            f.append('xhtml:div').attr('class', 'fo').html('<p style="font-size:12.5px;color:var(--mira-text-soft);line-height:1.4">' + c[1].replace(/</g, '&lt;') + '</p>');
+            return { g: g, r: r };
+        });
+
+        var W1 = SEG.map(function (s) { return s[1]; });
+        var infra = W1.slice(0, 5).reduce(function (a, b) { return a + b; }, 0);
+        /* compressão: as cinco peças viram ATLAS proporcionalmente */
+        var W2 = W1.map(function (w, i) { return i < 5 ? w * ATLAS / infra : 1 - ATLAS; });
+
+        var INI = 2600, CIC = 13000;
+        reger(id, function (ms) {
+            sobe(b1.g, eo(ms, 0, 600), 10);
+            por(b1, W1, W1.map(function (w, i) { return eo(ms, 300 + i * 260, 600); }));
+            sobe(nota, eo(ms, 1800, 700));
+            cards.forEach(function (c, i) { sobe(c.g, eo(ms, 900 + i * 200, 700), 14); });
+            var u = ms - INI;
+            if (u < 0) { b2.g.attr('opacity', 0); return; }
+            u = u % CIC;
+            /* a barra de baixo entra igual à de cima, segura, e comprime */
+            sobe(b2.g, eo(u, 0, 700) * (1 - eo(u, CIC - 1400, 800)), 10);
+            var k = es(u, 1700, 2200);
+            /* antecipação: as peças de infraestrutura encolhem 4% antes de comprimir */
+            var ante = janela(u, 1400, 1900, 250) * .04;
+            b2.rotOp = 1 - eo(u, 1500, 400);
+            por(b2, W1.map(function (w, i) { return lerp(w, W2[i], k) * (i < 5 ? 1 - ante : 1); }));
+            b2.segs[5].t.attr('opacity', 1);
+            b2.segs.forEach(function (s, i) { if (i < 5) s.r.attr('stroke', k > .6 ? COR.marca : COR.borda).attr('fill', k > .6 ? COR.brilhoSuave : COR.card); });
+            blocoAtlas.attr('opacity', eo(u, 3700, 500));
+            rotAtlas.attr('opacity', eo(u, 3800, 500));
+            /* depois da compressão, os ganhos do time acendem um a um */
+            cards.forEach(function (c, i) { acender(c.r, janela(u, 4600 + i * 1700, 6100 + i * 1700, 300)); });
+        });
+    }
+
+    /* ==============================================================
+       A05 · Evoluir e adotar: o ciclo de contribuição no centro. Um
+       time propõe, o Atlas publica a versão, todos atualizam, e o
+       próximo pedido volta para o começo. O contorno local fica de
+       fora, apagado: é o atalho que quebra a padronização.
+       ============================================================== */
+    function a05(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var y0 = inicio(F, 390);
+
+        function coluna(x, k, titulo, itens) {
+            var g = bloco(raiz, x, y0);
+            texto(g, 0, 14, k, { size: 10.5, weight: 700, fill: COR.fraco });
+            texto(g, 0, 38, titulo, { size: 17, weight: 800, fill: COR.marca });
+            var rs = itens.map(function (it, i) {
+                var r = caixa(g, 0, 56 + i * 66, 270, 58, { rx: 10 });
+                texto(g, 14, 56 + i * 66 + 24, it, { size: 12.5, weight: 600, fill: COR.tinta, lh: 16 });
+                return r;
+            });
+            return { g: g, rs: rs };
+        }
+        var inv = coluna(30, 'INVESTIR NA PLATAFORMA', 'Quem evolui o Atlas', [
+            'Cada melhoria feita uma vez\nvale para todos os sistemas',
+            'Decisões difíceis resolvidas,\ndocumentadas e testadas uma vez',
+            'Docs, testes e CHANGELOG em dia\ndão confiança para atualizar',
+            'Capacidade no time do Atlas evita\npedidos parados à espera de versão'
+        ]);
+        var ado = coluna(660, 'ADOTAR A PLATAFORMA', 'Quem usa o Atlas', [
+            'Recebe pronto: autenticação,\ndados, log, auditoria e telas',
+            'Pode propor a melhoria no Atlas\nem vez de contornar no projeto',
+            'Atualiza a versão e herda\nas correções de segurança',
+            'Mesma identidade visual\nsem copiar componentes'
+        ]);
+
+        /* o ciclo */
+        var CX = 480, CY = y0 + 214, R = 98;
+        var NOS = [
+            { a: -90, t: 'Time propõe\nmelhoria' },
+            { a: 30, t: 'Atlas publica\nnova versão' },
+            { a: 150, t: 'Todos os sistemas\natualizam' }
+        ];
+        raiz.append('circle').attr('cx', CX).attr('cy', CY).attr('r', R).attr('fill', 'none')
+            .attr('stroke', COR.borda).attr('stroke-width', 2).attr('stroke-dasharray', '5 6');
+        var rastro = raiz.append('path').attr('fill', 'none').attr('stroke', COR.marca).attr('stroke-width', 3).attr('stroke-linecap', 'round');
+        var tok = ponto(raiz);
+        var nos = NOS.map(function (n) {
+            var ang = n.a * Math.PI / 180, x = CX + R * Math.cos(ang), y = CY + R * Math.sin(ang);
+            var g = bloco(raiz, x, y);
+            var r = g.append('rect').attr('x', -62).attr('y', -22).attr('width', 124).attr('height', 44).attr('rx', 10)
+                .attr('fill', COR.fundo).attr('stroke', COR.borda).attr('stroke-width', 1.5);
+            texto(g, 0, -4, n.t, { anchor: 'middle', size: 11.5, weight: 700, lh: 14 });
+            return { g: g, r: r };
+        });
+        /* contrafactual: o contorno local, fora do ciclo */
+        var ctY = y0 + 30;
+        var ctLig = seta(raiz, CX, CY - R - 22, CX, ctY + 22, { tracejado: true, sw: 1.5 });
+        var ct = bloco(raiz, CX, ctY);
+        var ctR = ct.append('rect').attr('x', -92).attr('y', -18).attr('width', 184).attr('height', 40).attr('rx', 9)
+            .attr('fill', 'none').attr('stroke', COR.fraco).attr('stroke-dasharray', '3 4');
+        texto(ct, 0, -1, 'Contorno local', { anchor: 'middle', size: 12, weight: 700, fill: COR.fraco });
+        texto(ct, 0, 14, 'quebra a padronização', { anchor: 'middle', size: 10.5, fill: COR.fraco });
+        var rod = bloco(raiz, 480, y0 + 372);
+        texto(rod, 0, 0, 'Recomendação do Atlas: um processo de contribuição para os times proporem melhorias em vez de contornos locais', { anchor: 'middle', size: 12, fill: COR.fraco });
+
+        /* em cada ciclo o token para em cada nó; nó → item que ele ilumina */
+        var LIGA = [{ col: ado, i: 1 }, { col: inv, i: 0 }, { col: ado, i: 2 }];
+        var EXTRA = [{ col: inv, i: 1 }, { col: inv, i: 2 }, { col: inv, i: 3 }, { col: ado, i: 0 }, { col: ado, i: 3 }];
+        var INI = 2200, PARA = 1500, VIAJA = 1900, CIC = 3 * (PARA + VIAJA) + 1600;
+        function arco(a1, a2) {
+            var r1 = a1 * Math.PI / 180, r2 = a2 * Math.PI / 180;
+            return 'M' + (CX + R * Math.cos(r1)) + ',' + (CY + R * Math.sin(r1)) + ' A' + R + ',' + R + ' 0 0,1 ' + (CX + R * Math.cos(r2)) + ',' + (CY + R * Math.sin(r2));
+        }
+        var volta = 0;
+        reger(id, function (ms) {
+            sobe(inv.g, eo(ms, 0, 700), 14); sobe(ado.g, eo(ms, 200, 700), 14);
+            nos.forEach(function (n, i) { sobe(n.g, eo(ms, 600 + i * 250, 700), 10); });
+            ct.attr('opacity', .8 * eo(ms, 1400, 700)); ctLig.attr('opacity', .7 * eo(ms, 1400, 700));
+            sobe(rod, eo(ms, 1600, 700));
+            var u = ms - INI;
+            var todos = inv.rs.concat(ado.rs);
+            if (u < 0) { tok.attr('opacity', 0); rastro.attr('d', null); todos.forEach(function (r) { acender(r, 0); }); return; }
+            volta = Math.floor(u / CIC);
+            u = u % CIC;
+            var foco = -1, ang = -90, rastroDe = -90;
+            for (var i = 0; i < 3; i++) {
+                var t0 = i * (PARA + VIAJA);
+                if (u < t0 + PARA) { foco = i; ang = NOS[i].a; rastroDe = ang; break; }
+                if (u < t0 + PARA + VIAJA) {
+                    var a2 = i === 2 ? 270 : NOS[i + 1].a;
+                    ang = lerp(NOS[i].a, a2, es(u, t0 + PARA, VIAJA)); rastroDe = NOS[i].a; break;
+                }
+                ang = 270; rastroDe = 270;
+            }
+            var rad = ang * Math.PI / 180;
+            tok.attr('cx', CX + R * Math.cos(rad)).attr('cy', CY + R * Math.sin(rad))
+                .attr('opacity', 1 - eo(u, CIC - 1400, 600));
+            rastro.attr('d', ang - rastroDe > 1 ? arco(rastroDe, ang) : null);
+            nos.forEach(function (n, i) {
+                var k = i === foco ? eo(u, i * (PARA + VIAJA), 300) : 0;
+                n.r.attr('stroke', k > .05 ? COR.marca : COR.borda).attr('fill', k > .05 ? COR.brilhoSuave : COR.fundo);
+            });
+            /* o item da coluna ligado ao nó acende ~300 ms depois do nó; um item extra por volta */
+            todos.forEach(function (r) { acender(r, 0); });
+            if (foco >= 0) acender(LIGA[foco].col.rs[LIGA[foco].i], eo(u, foco * (PARA + VIAJA) + 300, 300));
+            var ex = EXTRA[volta % EXTRA.length];
+            acender(ex.col.rs[ex.i], janela(u, 3 * (PARA + VIAJA) - 200, CIC - 200, 300));
+        });
+    }
+
+    /* ==============================================================
+       A06 · Claude Code e agentes de IA, para quem não é da área.
+       Você faz um pedido; o Claude Code reparte o trabalho entre
+       agentes de IA; cada agente reaproveita o Atlas e entrega uma
+       parte, que chega para você revisar. Só no fim, com as quatro
+       partes revisadas, o pedido é aprovado por você.
+
+       Pedido de exemplo: exemplo 1 do guia do plugin.
+       Ícones: Material Icons (Apache-2.0), viewBox 24, inline.
+       ============================================================== */
+    var P_PESSOA = 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z';
+    var P_ROBO = 'M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5zM16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z';
+    function fo(g, x, y, w, h, html) {
+        var f = g.append('foreignObject').attr('x', x).attr('y', y).attr('width', w).attr('height', h);
+        return f.append('xhtml:div').attr('class', 'fo').html(html || '');
+    }
+    function a06(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var y0 = inicio(F, 392);
+        var camLinhas = raiz.append('g');
+
+        /* ---------- linha de cima: você pede, Claude Code organiza, você revisa ---------- */
+        var voce = bloco(raiz, 30, y0);
+        var voceR = caixa(voce, 0, 0, 250, 112, { rx: 14 });
+        icone(voce, P_PESSOA, 30, 30, 30);
+        texto(voce, 54, 36, 'Você pede', { size: 15, weight: 800 });
+        var balao = fo(voce, 14, 52, 222, 54, '<p style="font-size:12px;line-height:1.35;color:var(--mira-text-soft);font-style:italic">“<span class="dig"></span><span class="cur"></span>”</p>');
+        var dig = balao.select('.dig').node(), cur = balao.select('.cur').node();
+        var PEDIDO = 'Adicionar filtro por período na listagem de changelogs';
+
+        var cc = bloco(raiz, 330, y0);
+        var ccR = caixa(cc, 0, 0, 300, 112, { rx: 14, stroke: COR.marca }).attr('stroke-opacity', .5);
+        texto(cc, 20, 34, 'Claude Code', { size: 20, weight: 800, fill: COR.marca });
+        texto(cc, 20, 58, 'Assistente de IA que trabalha dentro', { size: 12.5, fill: COR.suave });
+        texto(cc, 20, 76, 'do projeto: entende o pedido e o', { size: 12.5, fill: COR.suave });
+        texto(cc, 20, 94, 'reparte entre agentes especialistas', { size: 12.5, fill: COR.suave });
+
+        var rev = bloco(raiz, 680, y0);
+        var revR = caixa(rev, 0, 0, 250, 112, { rx: 14 });
+        icone(rev, P_PESSOA, 30, 30, 30);
+        texto(rev, 54, 36, 'Você revisa', { size: 15, weight: 800 });
+        var contRev = texto(rev, 20, 66, '', { size: 12.5, weight: 600, fill: COR.suave });
+        var aprov = rev.append('g').attr('opacity', 0);
+        marcaOk(aprov, 30, 89, 9);
+        texto(aprov, 46, 94, 'aprovado por você', { size: 13, weight: 800, fill: COR.ok });
+
+        /* ---------- os agentes ---------- */
+        var AG = [
+            ['Entende o pedido', 'história do usuário'],
+            ['Planeja a solução', 'especificação'],
+            ['Escreve o código', 'código'],
+            ['Testa e documenta', 'testes e manual']
+        ];
+        var AW = 176, AGAP = 18, AX0 = (960 - (4 * AW + 3 * AGAP)) / 2, AY = y0 + 158, AH = 108;
+        var agentes = AG.map(function (a, i) {
+            var x = AX0 + i * (AW + AGAP), cx = x + AW / 2;
+            var g = bloco(raiz, x, AY);
+            var r = caixa(g, 0, 0, AW, AH, { rx: 12 });
+            var rob = icone(g, P_ROBO, 28, 28, 26, COR.fraco);
+            texto(g, 48, 24, 'AGENTE DE IA', { size: 9.5, weight: 700, fill: COR.fraco });
+            texto(g, 48, 40, a[0], { size: 13, weight: 800 });
+            var chip = g.append('g').attr('opacity', 0);
+            caixa(chip, 14, 66, AW - 28, 28, { rx: 14, stroke: COR.ok, fill: COR.fundo });
+            texto(chip, AW / 2, 84.5, a[1], { anchor: 'middle', size: 11.5, weight: 700, fill: COR.ok });
+            /* fios: Claude Code até o agente; agente até a revisão */
+            var ida = camLinhas.append('path').attr('fill', 'none').attr('stroke', COR.borda).attr('stroke-width', 1.5).attr('stroke-dasharray', '4 4')
+                .attr('d', 'M480,' + (y0 + 112) + ' C480,' + (y0 + 136) + ' ' + cx + ',' + (y0 + 134) + ' ' + cx + ',' + AY);
+            var volta = camLinhas.append('path').attr('fill', 'none').attr('stroke', 'none')
+                .attr('d', 'M' + (x + AW - 10) + ',' + (AY + 80) + ' C' + (x + AW + 60) + ',' + (AY + 30) + ' 805,' + (y0 + 150) + ' 805,' + (y0 + 112));
+            return { g: g, r: r, rob: rob, chip: chip, cx: cx, ida: ida, irIda: amostrar(ida.node(), 40), irVolta: amostrar(volta.node(), 40),
+                tokIda: ponto(raiz), tokVolta: ponto(raiz).attr('fill', COR.ok), tokAtlas: ponto(raiz).attr('r', 4.5).attr('fill', COR.acento) };
+        });
+
+        /* ---------- o Atlas embaixo: o que os agentes reutilizam ---------- */
+        var BY = AY + AH + 24;
+        var atlas = bloco(raiz, AX0, BY);
+        var atlasR = caixa(atlas, 0, 0, 4 * AW + 3 * AGAP, 46, { rx: 12, stroke: COR.marca }).attr('stroke-opacity', .4);
+        texto(atlas, 18, 28.5, 'Atlas', { size: 15, weight: 800, fill: COR.marca });
+        texto(atlas, 72, 28.5, 'as peças prontas e os padrões que os agentes reutilizam antes de criar algo novo', { size: 12.5, fill: COR.suave });
+
+        var rod = bloco(raiz, 480, BY + 82);
+        texto(rod, 0, 0, 'A IA prepara cada etapa, você decide: nada segue para produção sem aprovação humana', { anchor: 'middle', size: 12.5, fill: COR.fraco });
+
+        var CPS = 26, T_DIG = 300, T_CC = 2900, T_AG = 3600, PASSO = 2100, T_APROV = T_AG + 4 * PASSO + 300, CIC = 16000;
+        reger(id, function (ms) {
+            sobe(voce, eo(ms, 0, 700), 12); sobe(cc, eo(ms, 200, 700), 12); sobe(rev, eo(ms, 400, 700), 12);
+            agentes.forEach(function (a, i) { sobe(a.g, eo(ms, 700 + i * 180, 700), 12); a.ida.attr('opacity', eo(ms, 1000 + i * 180, 600)); });
+            sobe(atlas, eo(ms, 1300, 700), 10); sobe(rod, eo(ms, 1700, 700));
+
+            var u = ms % CIC, some = 1 - eo(u, CIC - 1100, 700);
+            /* 1. o pedido é digitado */
+            escrever(dig, PEDIDO.slice(0, Math.floor(cl((u - T_DIG) / 1000 * CPS, 0, PEDIDO.length))));
+            balao.attr('style', 'opacity:' + some);
+            cur.className = 'cur' + (Math.floor(ms / 530) % 2 === 0 && u < T_CC ? '' : ' off');
+            cur.style.display = u < T_CC ? '' : 'none';
+            acender(voceR, janela(u, T_DIG, T_CC + 200, 300));
+            /* 2. o Claude Code recebe e reparte */
+            acender(ccR, janela(u, T_CC, T_AG + 4 * PASSO - 600, 300));
+            var revisados = 0;
+            agentes.forEach(function (a, i) {
+                var t0 = T_AG + i * PASSO;
+                var q = a.irIda(es(u, t0, 650));
+                a.tokIda.attr('cx', q[0]).attr('cy', q[1]).attr('opacity', janela(u, t0, t0 + 700, 150));
+                a.ida.attr('stroke', u >= t0 && u < t0 + PASSO ? COR.marca : COR.borda);
+                var ativo = janela(u, t0 + 500, t0 + PASSO, 300);
+                acender(a.r, ativo);
+                a.rob.attr('fill', ativo > .05 ? COR.marca : COR.fraco);
+                /* 3. o agente busca uma peça no Atlas (sobe da barra até ele) */
+                var ka = es(u, t0 + 750, 500);
+                a.tokAtlas.attr('cx', a.cx).attr('cy', lerp(BY, AY + AH, ka)).attr('opacity', janela(u, t0 + 700, t0 + 1300, 120));
+                /* 4. entrega a parte dele, que viaja para a revisão */
+                a.chip.attr('opacity', eo(u, t0 + 1300, 350) * some);
+                var kv = es(u, t0 + 1500, 600), qv = a.irVolta(kv);
+                a.tokVolta.attr('cx', qv[0]).attr('cy', qv[1]).attr('opacity', janela(u, t0 + 1450, t0 + 2150, 120));
+                if (u >= t0 + 2100) revisados++;
+            });
+            acender(atlasR, agentes.reduce(function (m, a, i) { var t0 = T_AG + i * PASSO; return Math.max(m, janela(u, t0 + 650, t0 + 1350, 200)); }, 0));
+            acender(revR, revisados ? janela(u, T_AG + 2100, CIC - 900, 300) * .6 + janela(u, T_APROV, T_APROV + 1500, 300) * .4 : 0);
+            escrever(contRev.node(), u < T_AG + 2100 ? 'aguardando as partes' : revisados + ' de 4 partes revisadas');
+            contRev.attr('opacity', some);
+            /* 5. com as quatro revisadas, o pedido é aprovado; depois repousa */
+            aprov.attr('opacity', eo(u, T_APROV, 500) * some);
+        });
+    }
+
+
+    /* ==============================================================
+       H01 · Harness + Claude Code. No centro, o modelo (Claude); em
+       volta, o anel do harness (Claude Code) com quatro estações:
+       contexto, ferramentas, permissões e hooks, extensões. Em loop,
+       uma tarefa percorre o ciclo: carrega o contexto, o modelo
+       decide, a ação passa pela permissão e chega à ferramenta, e o
+       resultado volta ao modelo. A cada três voltas, o hook barra a
+       ação (gravar um segredo) e ela volta sem executar.
+
+       Exemplos do guia do plugin: CLAUDE.md, block-secret.sh e o
+       MCP do Azure DevOps.
+       ============================================================== */
+    function h01(id) {
+        var p = palco(id); if (!p) return;
+        var svg = p.svg, F = p.F, raiz = svg.append('g');
+        var y0 = inicio(F, 396);
+        var CX = 290, CY = y0 + 190, R = 140;
+
+        /* o anel do harness */
+        var anel = raiz.append('circle').attr('cx', CX).attr('cy', CY).attr('r', R).attr('fill', COR.brilhoSuave).attr('fill-opacity', .25)
+            .attr('stroke', COR.marca).attr('stroke-opacity', .45).attr('stroke-width', 2).attr('stroke-dasharray', '6 6');
+        var rotAnel = bloco(raiz, CX + R * .74 + 8, CY - R * .74 - 6);
+        texto(rotAnel, 0, 0, 'harness: Claude Code', { size: 12, weight: 800, fill: COR.marca });
+        var trilha = raiz.append('path').attr('fill', 'none').attr('stroke', COR.marca).attr('stroke-width', 3)
+            .attr('stroke-linecap', 'round').attr('opacity', 0);
+
+        /* o modelo, no centro */
+        var nucleo = bloco(raiz, CX, CY);
+        var halo = nucleo.append('circle').attr('r', 52).attr('fill', 'none').attr('stroke', COR.marca).attr('stroke-opacity', 0).attr('stroke-width', 2);
+        nucleo.append('circle').attr('r', 44).attr('fill', COR.fundo).attr('stroke', COR.marca).attr('stroke-width', 2);
+        texto(nucleo, 0, -2, 'Claude', { anchor: 'middle', size: 16, weight: 800 });
+        texto(nucleo, 0, 15, 'o modelo de IA', { anchor: 'middle', size: 9.5, fill: COR.suave });
+
+        var tok = ponto(raiz);
+        /* as estações do anel (por cima do token: ele some atrás delas) */
+        var EST = {
+            ctx: { x: CX, y: CY - R, t: 'Contexto', d: 'CLAUDE.md e padrões do Atlas' },
+            fer: { x: CX + R, y: CY, t: 'Ferramentas', d: 'ler, editar, rodar comandos' },
+            per: { x: CX, y: CY + R, t: 'Permissões e hooks', d: 'o que pode e o que é barrado' },
+            ext: { x: CX - R, y: CY, t: 'Extensões', d: 'MCP, skills, plugins' }
+        };
+        Object.keys(EST).forEach(function (k, i) {
+            var e = EST[k], g = bloco(raiz, e.x, e.y);
+            g.append('rect').attr('x', -88).attr('y', -25).attr('width', 176).attr('height', 50).attr('rx', 10).attr('fill', COR.fundo);
+            e.r = g.append('rect').attr('x', -88).attr('y', -25).attr('width', 176).attr('height', 50).attr('rx', 10)
+                .attr('fill', COR.fundo).attr('stroke', COR.borda).attr('stroke-width', 1.5);
+            texto(g, 0, -4, e.t, { anchor: 'middle', size: 13, weight: 800 });
+            texto(g, 0, 13, e.d, { anchor: 'middle', size: 10.5, fill: COR.suave });
+            e.g = g; e.ordem = i;
+        });
+        var selo = raiz.append('g').attr('opacity', 0);
+        var seloR = selo.append('rect').attr('x', -58).attr('y', -13).attr('width', 116).attr('height', 26).attr('rx', 13).attr('fill', COR.fundo).attr('stroke-width', 1.5);
+        var seloT = texto(selo, 0, 4.5, '', { anchor: 'middle', size: 11.5, weight: 800 });
+
+        var leg = bloco(raiz, CX, y0 + 388);
+        var legT = texto(leg, 0, 0, '', { anchor: 'middle', size: 13, weight: 600 });
+
+        /* a explicação, à direita */
+        var CARDS = [
+            ['O modelo pensa', 'O Claude lê o pedido, raciocina e decide o próximo passo.'],
+            ['O harness deixa agir', 'O Claude Code é o ambiente em volta do modelo: ferramentas, memória e regras.'],
+            ['Juntos, em ciclo', 'Decidir, agir, conferir o resultado e repetir até a tarefa ficar pronta.'],
+            ['Na Mogai', 'O plugin mogai-devops-pipeline se encaixa nesse harness com comandos, agentes, hooks, MCP e skills.']
+        ];
+        var cards = CARDS.map(function (c, i) {
+            var g = bloco(raiz, 580, y0 + i * 98);
+            var r = caixa(g, 0, 0, 350, 88, { rx: 12 });
+            texto(g, 16, 26, c[0], { size: 14.5, weight: 800, fill: COR.marca });
+            g.append('foreignObject').attr('x', 16).attr('y', 34).attr('width', 322).attr('height', 52)
+                .append('xhtml:div').attr('class', 'fo').html('<p style="font-size:12.5px;color:var(--mira-text-soft);line-height:1.38">' + c[1] + '</p>');
+            return { g: g, r: r };
+        });
+
+        /* cada volta usa uma ação; a terceira é barrada pelo hook */
+        var ACOES = [
+            { ferr: 'fer', txt: 'editar um arquivo', ok: true },
+            { ferr: 'ext', txt: 'consultar o Azure DevOps (MCP)', ok: true },
+            { ferr: 'fer', txt: 'gravar uma senha no código', ok: false }
+        ];
+        var T = { ctx: 0, decide: 1500, gate: 3000, tool: 4500, volta: 6200, fim: 7900 }, INI = 2200, CIC = 11000;
+        function pos(e) { return [e.x, e.y]; }
+        reger(id, function (ms) {
+            anel.attr('opacity', eo(ms, 0, 900)); sobe(rotAnel, eo(ms, 700, 700));
+            nucleo.attr('opacity', eo(ms, 200, 700));
+            Object.keys(EST).forEach(function (k) { var e = EST[k]; sobe(e.g, eo(ms, 500 + e.ordem * 200, 600), 8); });
+            cards.forEach(function (c, i) { sobe(c.g, eo(ms, 600 + i * 220, 700), 14); });
+            var u = ms - INI;
+            Object.keys(EST).forEach(function (k) { EST[k].r.attr('stroke', COR.borda).attr('fill', COR.fundo); });
+            cards.forEach(function (c) { acender(c.r, 0); });
+            if (u < 0) { tok.attr('opacity', 0); selo.attr('opacity', 0); escrever(legT.node(), ''); return; }
+            var volta = Math.floor(u / CIC), a = ACOES[volta % 3];
+            u = u % CIC;
+            function luz(k) { EST[k].r.attr('stroke', COR.marca).attr('fill', COR.brilhoSuave); }
+            var q = [CX, CY], txt = '', op = 1;
+            if (u < T.decide) {
+                /* 1. o contexto do projeto entra no modelo */
+                luz('ctx'); acender(cards[1].r, 1);
+                q = d3.interpolate(pos(EST.ctx), [CX, CY])(es(u, 200, 1100));
+                txt = '1. Lê o contexto: CLAUDE.md e os padrões do Atlas';
+            } else if (u < T.gate) {
+                /* 2. o modelo decide; o halo marca o raciocínio */
+                acender(cards[0].r, 1);
+                txt = '2. O modelo decide o próximo passo: ' + a.txt;
+                op = 0;
+            } else if (u < T.tool) {
+                /* 3. toda ação passa pela permissão antes de executar */
+                luz('per'); acender(cards[1].r, 1);
+                q = d3.interpolate([CX, CY], pos(EST.per))(es(u, T.gate, 1000));
+                txt = '3. Antes de executar, a permissão e os hooks conferem';
+            } else if (u < T.volta) {
+                if (a.ok) {
+                    luz(a.ferr); acender(cards[a.ferr === 'ext' ? 3 : 1].r, 1);
+                    var ang0 = Math.PI / 2, ang1 = a.ferr === 'fer' ? 0 : Math.PI;
+                    var k = es(u, T.tool, 1300), ang = lerp(ang0, ang1, k);
+                    q = [CX + R * Math.cos(ang), CY + R * Math.sin(ang)];
+                    txt = '4. A ferramenta executa: ' + a.txt;
+                } else {
+                    luz('per'); acender(cards[1].r, 1);
+                    q = pos(EST.per);
+                    txt = '4. O hook block-secret.sh barra a gravação: nada é executado';
+                }
+            } else if (u < T.fim) {
+                /* 5. o resultado (ou o bloqueio) volta ao modelo */
+                acender(cards[2].r, 1);
+                var de = a.ok ? pos(EST[a.ferr]) : pos(EST.per);
+                q = d3.interpolate(de, [CX, CY])(es(u, T.volta, 1200));
+                txt = a.ok ? '5. O resultado volta ao modelo, que confere e segue' : '5. O modelo recebe o bloqueio e corrige o caminho';
+            } else {
+                /* repouso: só o texto do ciclo permanece */
+                acender(cards[2].r, 1);
+                txt = 'E o ciclo recomeça até a tarefa ficar pronta';
+                op = 0;
+            }
+            tok.attr('cx', q[0]).attr('cy', q[1]).attr('opacity', op * (1 - eo(u, CIC - 700, 500)))
+                .attr('fill', !a.ok && u >= T.tool && u < T.fim ? COR.acento : COR.marca);
+            halo.attr('stroke-opacity', janela(u, T.decide, T.gate, 300) * .9).attr('r', 50 + 6 * janela(u, T.decide, T.gate, 700));
+            /* selo do portão: liberado ou barrado */
+            var ks = janela(u, T.tool - 200, T.volta + 300, 250);
+            selo.attr('opacity', ks).attr('transform', 'translate(' + CX + ',' + (CY + R - 50) + ')');
+            seloR.attr('stroke', a.ok ? COR.ok : COR.acento);
+            escrever(seloT.node(), a.ok ? 'liberado' : 'barrado');
+            seloT.attr('fill', a.ok ? COR.ok : COR.acento);
+            escrever(legT.node(), txt);
+            legT.attr('opacity', 1 - eo(u, CIC - 700, 500));
+        });
+    }
+
+    function ligar() {
+        [a00, a01, a02, a03, a04, a05, a06, h01].forEach(function (f) {
+            var id = f.name;
+            try { f(id); } catch (e) { if (window.console) console.error('[deck] ' + id, e); }
+        });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ligar);
+    else ligar();
+})();
+</script>
+
+<script defer src="mira/mira-edit.js"></script>
+<script defer src="mira/mira-edit-free.js"></script>
+<script defer src="mira/mira-draw.js"></script>
+</body>
+</html>
